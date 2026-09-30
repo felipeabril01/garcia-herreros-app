@@ -1,78 +1,66 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#112d69" />
-  <title>García Herreros FC · Administración</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#ffffff">
+<title>García Herreros FC · Mi club</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="app-shell">
-    <aside class="sidebar" id="sidebar">
-      <div class="brand">
-        <div class="brand-crest-wrap"><img src="assets/club-crest-source.png" alt="Escudo García Herreros FC" class="brand-crest" /></div>
-        <div><strong>GARCÍA HERREROS</strong><span>FÚTBOL CLUB</span></div>
-      </div>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-crest-wrap"><img src="assets/club-crest-source.png" alt="Escudo García Herreros FC" class="brand-crest"></div>
+      <div><strong>GARCÍA<br>HERREROS</strong><span>FÚTBOL CLUB</span></div>
+    </div>
+    <div class="sidebar-label">MI CLUB</div>
+    <nav class="nav">
+      <button class="nav-item active" data-view="dashboard"><i data-lucide="layout-grid"></i><span>Resumen</span></button>
+      <button class="nav-item" data-view="players"><i data-lucide="users"></i><span>Deportistas</span></button>
+      <button class="nav-item" data-view="attendance"><i data-lucide="clipboard-check"></i><span>Asistencia</span></button>
+      <button class="nav-item" data-view="training"><i data-lucide="calendar-days"></i><span>Entrenamientos</span></button>
+      <button class="nav-item" data-view="team"><i data-lucide="users-round"></i><span>Equipo y categorías</span></button>
+      <button class="nav-item" data-view="access"><i data-lucide="shield-check"></i><span>Accesos</span></button>
+      <button class="nav-item" data-view="payments"><i data-lucide="wallet-cards"></i><span>Pagos y cartera</span></button>
+      <button class="nav-item" data-view="activity"><i data-lucide="clock-3"></i><span>Actividad</span></button>
+    </nav>
+  </aside>
 
-      <div class="sidebar-label">MI CLUB</div>
-      <nav class="nav" id="nav">
-        <button class="nav-item active" data-view="dashboard">Resumen</button>
-        <button class="nav-item" data-view="players">Deportistas</button>
-        <button class="nav-item" data-view="payments">Pagos y cartera</button>
-        <button class="nav-item" data-view="attendance">Asistencia</button>
-        <button class="nav-item" data-view="training">Entrenamientos</button>
-        <button class="nav-item" data-view="team">Equipo y categorías</button>
-      </nav>
+  <main class="main">
+    <header class="topbar">
+      <button id="menuBtn" class="menu-btn" aria-label="Abrir menú"><i data-lucide="menu"></i></button>
+      <div class="breadcrumb" id="breadcrumb">Mi club <span>/</span> <strong>Resumen</strong></div>
+      <div class="topbar-actions"><span class="status-badge">BASE DEL CLUB</span><button class="ghost-btn">Salir</button></div>
+    </header>
+    <div class="context-strip">Fichas, asistencia y pagos con guardado permanente. <span>Archivos y correos pendientes.</span></div>
+    <section id="viewRoot"></section>
+  </main>
+</div>
 
-      <div class="sidebar-footer">
-        <div class="season">TEMPORADA 2026</div>
-        <p>Formamos equipo, dentro y fuera.</p>
-        <div class="user-card">
-          <div class="avatar">FA</div>
-          <div><strong>Felipe Abril</strong><span>Coordinador · Administración</span></div>
-        </div>
-      </div>
-    </aside>
+<div class="overlay" id="overlay"></div>
 
-    <main class="main">
-      <header class="topbar">
-        <button class="icon-btn menu-btn" id="menuBtn" aria-label="Abrir menú">☰</button>
-        <div>
-          <div class="breadcrumb" id="breadcrumb">Mi club / Resumen</div>
-          <div class="prototype-badge">VERSIÓN LOCAL</div>
-        </div>
-        <button class="primary compact" data-open-payment>+ Registrar pago</button>
-      </header>
+<dialog id="playerCreateDialog" class="dialog">
+  <form id="playerCreateForm" method="dialog">
+    <div class="dialog-head"><div><span class="eyebrow">NUEVA FICHA</span><h2>Registrar deportista</h2></div><button class="close-btn" value="cancel">×</button></div>
+    <div class="form-grid">
+      <label>Nombre completo<input id="newPlayerName" required></label>
+      <label>Categoría<input id="newPlayerCategory" placeholder="Ej. 2016–2017" required></label>
+      <label>Fecha de nacimiento<input id="newPlayerBirth" type="date"></label>
+      <label>Mensualidad<input id="newPlayerMonthly" type="number" value="50000"></label>
+      <label>Acudiente<input id="newPlayerGuardian"></label>
+      <label>Celular<input id="newPlayerPhone"></label>
+    </div>
+    <div class="dialog-actions"><button value="cancel" class="secondary">Cancelar</button><button class="primary" type="submit">Guardar ficha</button></div>
+  </form>
+</dialog>
 
-      <section id="viewRoot"></section>
-    </main>
-  </div>
+<dialog id="playerDialog" class="dialog player-dialog"><div id="playerDetail"></div></dialog>
 
-  <div class="overlay" id="overlay"></div>
-
-  <dialog id="paymentDialog" class="dialog">
-    <form method="dialog" id="paymentForm">
-      <div class="dialog-head"><div><span class="eyebrow">NUEVO MOVIMIENTO</span><h2>Registrar pago o abono</h2></div><button class="close-btn" value="cancel" aria-label="Cerrar">×</button></div>
-      <div class="form-grid">
-        <label>Deportista<select id="paymentPlayer" required></select></label>
-        <label>Concepto<select id="paymentConcept"><option>Mensualidad</option><option>Matrícula</option><option>Uniforme</option><option>Torneo</option><option>Otro</option></select></label>
-        <label>Mes<input id="paymentMonth" type="month" required /></label>
-        <label>Valor pagado<input id="paymentAmount" type="number" min="1" step="1000" required /></label>
-        <label>Medio<select id="paymentMethod"><option>Efectivo</option><option>Transferencia</option><option>Nequi</option><option>Daviplata</option><option>Otro</option></select></label>
-        <label>Tipo<select id="paymentType"><option>Pago completo</option><option>Abono</option></select></label>
-        <label class="span-2">Observación<input id="paymentNote" type="text" placeholder="Opcional" /></label>
-      </div>
-      <div class="dialog-actions"><button value="cancel" class="secondary">Cancelar</button><button type="submit" class="primary">Guardar y generar comprobante</button></div>
-    </form>
-  </dialog>
-
-  <dialog id="playerDialog" class="dialog player-dialog"><div id="playerDetail"></div></dialog>
-
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-  <script src="app.js"></script>
+<script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

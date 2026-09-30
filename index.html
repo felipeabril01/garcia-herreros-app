@@ -43,18 +43,64 @@
 
 <div class="overlay" id="overlay"></div>
 
-<dialog id="playerCreateDialog" class="dialog">
+<dialog id="playerCreateDialog" class="dialog player-form-dialog">
   <form id="playerCreateForm" method="dialog">
-    <div class="dialog-head"><div><span class="eyebrow">NUEVA FICHA</span><h2>Registrar deportista</h2></div><button class="close-btn" value="cancel">×</button></div>
-    <div class="form-grid">
-      <label>Nombre completo<input id="newPlayerName" required></label>
-      <label>Categoría<input id="newPlayerCategory" placeholder="Ej. 2016–2017" required></label>
-      <label>Fecha de nacimiento<input id="newPlayerBirth" type="date"></label>
-      <label>Mensualidad<input id="newPlayerMonthly" type="number" value="50000"></label>
-      <label>Acudiente<input id="newPlayerGuardian"></label>
-      <label>Celular<input id="newPlayerPhone"></label>
+    <div class="dialog-head">
+      <div><span class="eyebrow">FICHA DEPORTIVA</span><h2 id="playerFormTitle">Registrar deportista</h2></div>
+      <button class="close-btn" value="cancel" aria-label="Cerrar">×</button>
     </div>
-    <div class="dialog-actions"><button value="cancel" class="secondary">Cancelar</button><button class="primary" type="submit">Guardar ficha</button></div>
+
+    <div class="form-section">
+      <h3>Datos del deportista</h3>
+      <div class="form-grid">
+        <label>Nombre completo<input id="newPlayerName" required></label>
+        <label>Documento<input id="newPlayerDocument" placeholder="TI / RC / NUIP"></label>
+        <label>Categoría<input id="newPlayerCategory" placeholder="Ej. 2016–2017" required></label>
+        <label>Fecha de nacimiento<input id="newPlayerBirth" type="date"></label>
+        <label>Estado
+          <select id="newPlayerStatus">
+            <option value="Activo">Activo</option>
+            <option value="Inactivo">Inactivo</option>
+          </select>
+        </label>
+        <label>Mensualidad<input id="newPlayerMonthly" type="number" min="0" step="1000" value="50000"></label>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <h3>Acudiente y emergencia</h3>
+      <div class="form-grid">
+        <label>Acudiente<input id="newPlayerGuardian"></label>
+        <label>Celular acudiente<input id="newPlayerPhone"></label>
+        <label>Contacto de emergencia<input id="newPlayerEmergency"></label>
+        <label>Celular emergencia<input id="newPlayerEmergencyPhone"></label>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <h3>Información médica</h3>
+      <div class="form-grid">
+        <label>EPS<input id="newPlayerEps"></label>
+        <label>Tipo de sangre<input id="newPlayerBlood" placeholder="Ej. O+"></label>
+        <label class="span-2">Alergias<input id="newPlayerAllergies" placeholder="Ninguna, medicamentos, alimentos..."></label>
+        <label class="span-2">Condiciones / observaciones médicas<input id="newPlayerConditions"></label>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <h3>Seguimiento físico</h3>
+      <div class="form-grid">
+        <label>Estatura (cm)<input id="newPlayerHeight" type="number" min="0" step="0.1"></label>
+        <label>Peso (kg)<input id="newPlayerWeight" type="number" min="0" step="0.1"></label>
+        <label class="span-2">Observaciones<input id="newPlayerNotes"></label>
+      </div>
+    </div>
+
+    <input id="editingPlayerId" type="hidden">
+    <div class="dialog-actions">
+      <button value="cancel" class="secondary">Cancelar</button>
+      <button class="primary" type="submit" id="playerFormSubmit">Guardar ficha</button>
+    </div>
   </form>
 </dialog>
 

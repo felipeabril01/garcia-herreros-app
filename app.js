@@ -52,6 +52,7 @@ function openPlayerForm(p=null){
   $('#playerFormSubmit').textContent=p?'Guardar cambios':'Guardar ficha';
   $('#editingPlayerId').value=p?.id||'';
   $('#newPlayerName').value=p?.name||'';
+  $('#newPlayerDocumentType').value=p?.documentType||'';
   $('#newPlayerDocument').value=p?.document||'';
   $('#newPlayerCategory').value=p?.category||'';
   $('#newPlayerBirth').value=p?.birth||'';
@@ -77,6 +78,7 @@ $('#playerCreateForm').addEventListener('submit',e=>{
   const data={
     id,
     name:$('#newPlayerName').value.trim(),
+    documentType:$('#newPlayerDocumentType').value,
     document:$('#newPlayerDocument').value.trim(),
     category:$('#newPlayerCategory').value.trim(),
     birth:$('#newPlayerBirth').value,
@@ -104,9 +106,9 @@ function showPlayer(id){
   const status=(p.status||'Activo');
   $('#playerDetail').innerHTML=
     '<div class="detail-header"><div><span class="eyebrow">FICHA DEPORTIVA</span><h2 class="detail-name">'+p.name+'</h2><div class="detail-sub">'+(p.category||'Sin categoría')+' · <span class="status-dot '+(status==='Inactivo'?'inactive':'')+'">'+status+'</span></div></div>'+
-    '<div class="detail-actions"><button class="secondary" id="editPlayerBtn">Editar</button><button class="close-btn" onclick="document.querySelector(\'#playerDialog\').close()">×</button></div></div>'+
+    '<div class="detail-actions"><button class="primary compact" id="editPlayerBtn">'+icon('pencil')+' Editar ficha</button><button class="close-btn" onclick="document.querySelector(\'#playerDialog\').close()">×</button></div></div>'+
     '<div class="detail-section"><h3>Datos del deportista</h3><div class="detail-grid-2">'+
-      field('Documento',p.document)+field('Fecha de nacimiento',p.birth)+field('Mensualidad',p.monthly?'$ '+Number(p.monthly).toLocaleString('es-CO'):'—')+field('Categoría',p.category)+
+      field('Tipo de documento',p.documentType)+field('Número de documento',p.document)+field('Fecha de nacimiento',p.birth)+field('Mensualidad',p.monthly?'$ '+Number(p.monthly).toLocaleString('es-CO'):'—')+field('Categoría',p.category)+
     '</div></div>'+
     '<div class="detail-section"><h3>Acudiente y emergencia</h3><div class="detail-grid-2">'+
       field('Acudiente',p.guardian)+field('Celular',p.phone)+field('Contacto de emergencia',p.emergency)+field('Celular emergencia',p.emergencyPhone)+
@@ -114,10 +116,28 @@ function showPlayer(id){
     '<div class="detail-section"><h3>Información médica</h3><div class="detail-grid-2">'+
       field('EPS',p.eps)+field('Tipo de sangre',p.blood)+field('Alergias',p.allergies,true)+field('Condiciones / observaciones',p.conditions,true)+
     '</div></div>'+
-    '<div class="detail-section"><h3>Seguimiento físico</h3><div class="detail-grid-2">'+
-      field('Estatura',p.height?p.height+' cm':'—')+field('Peso',p.weight?p.weight+' kg':'—')+field('Observaciones',p.notes,true)+
-    '</div></div>';
-  $('#editPlayerBtn').onclick=()=>{$('#playerDialog').close();openPlayerForm(p)};
+    '<div class="detail-section"><h3>Seguimiento físico e IMC</h3>'+
+      '<div class="bmi-box"><div class="bmi-inputs">'+
+        '<label>Estatura (cm)<input id="bmiHeight" type="number" min="1" step="0.1" value="'+(p.height||'')+'"></label>'+
+        '<label>Peso (kg)<input id="bmiWeight" type="number" min="1" step="0.1" value="'+(p.weight||'')+'"></label>'+
+        '<button class="primary" type="button" id="calcBmiBtn">Calcular IMC</button>'+
+      '</div><div class="bmi-result" id="bmiResult">Ingresa estatura y peso para calcular.</div></div>'+
+      '<div class="detail-grid-2">'+field('Observaciones',p.notes,true)+'</div>'+
+    '</div>';
+
+  const editBtn=$('#editPlayerBtn');
+  editBtn.onclick=()=>{$('#playerDialog').close();openPlayerForm(p)};
+
+  const calc=()=>{
+    const h=Number($('#bmiHeight').value),w=Number($('#bmiWeight').value);
+    const out=$('#bmiResult');
+    if(!h||!w||h<=0||w<=0){out.innerHTML='<strong>Faltan datos.</strong> Ingresa estatura y peso válidos.';return}
+    const m=h/100, bmi=w/(m*m);
+    out.innerHTML='<span>IMC calculado</span><strong>'+bmi.toFixed(1)+'</strong><small>En niños y adolescentes, el IMC debe interpretarse según edad y sexo mediante percentiles.</small>';
+  };
+  $('#calcBmiBtn').onclick=calc;
+  if(p.height&&p.weight)calc();
+
   $('#playerDialog').showModal();
 }
 function field(label,value,wide=false){return '<div class="detail-field '+(wide?'wide':'')+'"><span>'+label+'</span><strong>'+(value||'—')+'</strong></div>'}

@@ -54,8 +54,29 @@
       <h3>Datos del deportista</h3>
       <div class="form-grid">
         <label>Nombre completo<input id="newPlayerName" required></label>
-        <label>Documento<input id="newPlayerDocument" placeholder="TI / RC / NUIP"></label>
-        <label>Categoría<input id="newPlayerCategory" placeholder="Ej. 2016–2017" required></label>
+        <label>Tipo de documento
+          <select id="newPlayerDocumentType">
+            <option value="">Seleccionar</option>
+            <option value="RC">Registro Civil (RC)</option>
+            <option value="TI">Tarjeta de Identidad (TI)</option>
+            <option value="CC">Cédula de Ciudadanía (CC)</option>
+            <option value="CE">Cédula de Extranjería (CE)</option>
+            <option value="PA">Pasaporte</option>
+            <option value="PPT">Permiso por Protección Temporal (PPT)</option>
+          </select>
+        </label>
+        <label>Número de documento<input id="newPlayerDocument" placeholder="Número de identificación"></label>
+        <label>Categoría
+          <select id="newPlayerCategory" required>
+            <option value="">Seleccionar categoría</option>
+            <option value="2020–2021">2020–2021</option>
+            <option value="2019–2018">2019–2018</option>
+            <option value="2017–2016">2017–2016</option>
+            <option value="2015–2014">2015–2014</option>
+            <option value="2013–2012">2013–2012</option>
+            <option value="2010–2011–2009–2008">2010–2011–2009–2008</option>
+          </select>
+        </label>
         <label>Fecha de nacimiento<input id="newPlayerBirth" type="date"></label>
         <label>Estado
           <select id="newPlayerStatus">

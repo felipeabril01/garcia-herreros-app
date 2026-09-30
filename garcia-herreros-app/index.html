@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#112d69" />
+  <title>García Herreros FC · Administración</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-crest-wrap"><img src="assets/club-crest-source.png" alt="Escudo García Herreros FC" class="brand-crest" /></div>
+        <div><strong>GARCÍA HERREROS</strong><span>FÚTBOL CLUB</span></div>
+      </div>
+
+      <div class="sidebar-label">MI CLUB</div>
+      <nav class="nav" id="nav">
+        <button class="nav-item active" data-view="dashboard">Resumen</button>
+        <button class="nav-item" data-view="players">Deportistas</button>
+        <button class="nav-item" data-view="payments">Pagos y cartera</button>
+        <button class="nav-item" data-view="attendance">Asistencia</button>
+        <button class="nav-item" data-view="training">Entrenamientos</button>
+        <button class="nav-item" data-view="team">Equipo y categorías</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="season">TEMPORADA 2026</div>
+        <p>Formamos equipo, dentro y fuera.</p>
+        <div class="user-card">
+          <div class="avatar">FA</div>
+          <div><strong>Felipe Abril</strong><span>Coordinador · Administración</span></div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" id="menuBtn" aria-label="Abrir menú">☰</button>
+        <div>
+          <div class="breadcrumb" id="breadcrumb">Mi club / Resumen</div>
+          <div class="prototype-badge">VERSIÓN LOCAL</div>
+        </div>
+        <button class="primary compact" data-open-payment>+ Registrar pago</button>
+      </header>
+
+      <section id="viewRoot"></section>
+    </main>
+  </div>
+
+  <div class="overlay" id="overlay"></div>
+
+  <dialog id="paymentDialog" class="dialog">
+    <form method="dialog" id="paymentForm">
+      <div class="dialog-head"><div><span class="eyebrow">NUEVO MOVIMIENTO</span><h2>Registrar pago o abono</h2></div><button class="close-btn" value="cancel" aria-label="Cerrar">×</button></div>
+      <div class="form-grid">
+        <label>Deportista<select id="paymentPlayer" required></select></label>
+        <label>Concepto<select id="paymentConcept"><option>Mensualidad</option><option>Matrícula</option><option>Uniforme</option><option>Torneo</option><option>Otro</option></select></label>
+        <label>Mes<input id="paymentMonth" type="month" required /></label>
+        <label>Valor pagado<input id="paymentAmount" type="number" min="1" step="1000" required /></label>
+        <label>Medio<select id="paymentMethod"><option>Efectivo</option><option>Transferencia</option><option>Nequi</option><option>Daviplata</option><option>Otro</option></select></label>
+        <label>Tipo<select id="paymentType"><option>Pago completo</option><option>Abono</option></select></label>
+        <label class="span-2">Observación<input id="paymentNote" type="text" placeholder="Opcional" /></label>
+      </div>
+      <div class="dialog-actions"><button value="cancel" class="secondary">Cancelar</button><button type="submit" class="primary">Guardar y generar comprobante</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="playerDialog" class="dialog player-dialog"><div id="playerDetail"></div></dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

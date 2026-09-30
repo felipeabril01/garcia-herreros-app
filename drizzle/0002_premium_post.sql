@@ -1,0 +1,1 @@
+ALTER TABLE `payments` ADD `payload` text DEFAULT '' NOT NULL;

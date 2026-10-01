@@ -3,7 +3,7 @@ import { CLUB, CLUB_EMAIL, BOOTSTRAP_EMAIL, weeklySessions } from './config';
 import { HttpError } from './errors';
 import { financeHandle, enrichEligibility, ensureMonthlyCharges } from './finance';
 export { HttpError } from './errors';
-export type Identity={userId:string,email:string};
+export type Identity={userId?:string,email?:string,staffId?:string};
 const fail=(status:number,msg:string):never=>{throw new HttpError(status,msg)};
 const now=()=>new Date().toISOString();
 const uid=()=>crypto.randomUUID();
@@ -12,12 +12,17 @@ export function coachCategories(id:string){return [...new Set(weeklySessions.fil
 function auditStmt(actor:string,action:string,id:string){return db().prepare('INSERT INTO audit (id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)').bind(uid(),actor,action,id,now())}
 export async function member(identity:Identity){
  const database=db();
- // First-use owner binding uses the authenticated email forwarded by Sites, never browser form data.
- if(identity.email.toLowerCase()===BOOTSTRAP_EMAIL){
-  await database.prepare("INSERT OR IGNORE INTO staff(id,name,title,role,coach_id,email,auth_id,active,owner) VALUES ('felipe','Felipe Abril','Coordinador y entrenador','admin','felipe',?,?,1,1)").bind(BOOTSTRAP_EMAIL,identity.userId).run();
+ let row:any=null;
+ if(identity.staffId){
+  row=await database.prepare('SELECT * FROM staff WHERE id=? AND active=1').bind(identity.staffId).first();
+ }else if(identity.email&&identity.userId){
+  // Transitional Cloudflare Access binding, used only while the owner creates local credentials.
+  if(identity.email.toLowerCase()===BOOTSTRAP_EMAIL){
+   await database.prepare("INSERT OR IGNORE INTO staff(id,name,title,role,coach_id,email,auth_id,active,owner) VALUES ('felipe','Felipe Abril','Coordinador y entrenador','admin','felipe',?,?,1,1)").bind(BOOTSTRAP_EMAIL,identity.userId).run();
+  }
+  row=await database.prepare('SELECT * FROM staff WHERE auth_id=? AND active=1').bind(identity.userId).first();
+  if(!row){await database.prepare('UPDATE staff SET auth_id=? WHERE email=? AND auth_id IS NULL AND active=1 AND owner=0').bind(identity.userId,identity.email.toLowerCase()).run();row=await database.prepare('SELECT * FROM staff WHERE auth_id=? AND active=1').bind(identity.userId).first();}
  }
- let row:any=await database.prepare('SELECT * FROM staff WHERE auth_id=? AND active=1').bind(identity.userId).first();
- if(!row){await database.prepare('UPDATE staff SET auth_id=? WHERE email=? AND auth_id IS NULL AND active=1 AND owner=0').bind(identity.userId,identity.email.toLowerCase()).run();row=await database.prepare('SELECT * FROM staff WHERE auth_id=? AND active=1').bind(identity.userId).first();}
  if(!row)fail(403,'Tu cuenta todavía no tiene acceso asignado al club. Contacta al coordinador.');
  if(row.owner){const entries=[{id:'presidente',name:'Vicente Sánchez',title:'Presidente',role:'admin',coach:null},{id:'vicepresidenta',name:'Por definir',title:'Vicepresidenta',role:'admin',coach:null},{id:'secretaria',name:'Sandra González',title:'Secretaria',role:'admin',coach:null},...CLUB.coaches.filter(c=>c.id!=='felipe').map(c=>({id:c.id,name:c.name,title:'Entrenador',role:'coach',coach:c.id}))];await database.batch(entries.map(e=>database.prepare('INSERT OR IGNORE INTO staff(id,name,title,role,coach_id,email,auth_id,active,owner) VALUES (?,?,?,?,?,NULL,NULL,1,0)').bind(e.id,e.name,e.title,e.role,e.coach)));}
  return row;
@@ -38,7 +43,7 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
  if(path[0]==='finance')return financeHandle(method,path.slice(1),body,m);
  if(method==='GET'&&path[0]==='bootstrap'){
   await ensureMonthlyCharges();
-  const categories=m.role===ADMIN?CLUB.categories:coachCategories(m.coach_id);const result=await database.prepare('SELECT * FROM athletes ORDER BY name').all();const staff=m.role===ADMIN?(await database.prepare('SELECT id,name,title,role,coach_id,email,active,owner,auth_id IS NOT NULL AS linked FROM staff ORDER BY owner DESC,role,name').all()).results:[];
+  const categories=m.role===ADMIN?CLUB.categories:coachCategories(m.coach_id);const result=await database.prepare('SELECT * FROM athletes ORDER BY name').all();const staff=m.role===ADMIN?(await database.prepare('SELECT id,name,title,role,coach_id,email,username,active,owner,(password_hash IS NOT NULL) AS has_password FROM staff ORDER BY owner DESC,role,name').all()).results:[];
   const permitted=result.results.filter((a:any)=>categories.includes(a.category)).map(a=>publicAthlete(a,m));
   return {member:{id:m.id,name:m.name,title:m.title,role:m.role,coachId:m.coach_id,owner:!!m.owner},clubEmail:CLUB_EMAIL,categories,athletes:await enrichEligibility(permitted),staff,schedule:weeklySessions.filter(s=>m.role===ADMIN||s.coaches.includes(m.coach_id))};
  }

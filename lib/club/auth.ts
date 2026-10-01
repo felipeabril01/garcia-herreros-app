@@ -36,6 +36,12 @@ export async function setCredentials(staffId:string,username:string,password:str
  ]);
  return u;
 }
+export async function verifyPasswordForStaff(staffId:string,password:string){
+ const row:any=await db().prepare('SELECT password_hash,password_salt,password_iterations FROM staff WHERE id=? AND active=1').bind(staffId).first();
+ if(!row?.password_hash||!row?.password_salt)return false;
+ const hash=await passwordHash(String(password||''),row.password_salt,Number(row.password_iterations)||ITERATIONS);
+ return safeEqual(hash,row.password_hash);
+}
 export async function authenticate(username:string,password:string){
  const u=normalizeUsername(username),database=db();
  const row:any=await database.prepare('SELECT * FROM staff WHERE username=? AND active=1').bind(u).first();

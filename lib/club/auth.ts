@@ -2,7 +2,7 @@ import { headers } from 'next/headers';
 import { db } from './db';
 
 const COOKIE='ghfc_session';
-const ITERATIONS=210000;
+const ITERATIONS=100000;
 const SESSION_SECONDS=60*60*12;
 
 const enc=new TextEncoder();

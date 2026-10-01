@@ -10,7 +10,7 @@ export async function POST(req:Request){
   const form=await req.formData(),username=String(form.get('username')||''),password=String(form.get('password')||''),confirm=String(form.get('confirm')||'');
   if(password!==confirm)return new Response(null,{status:303,headers:{Location:'/?setup_error=Las%20contrase%C3%B1as%20no%20coinciden'}});
   await setCredentials(m.id,username,password);
-  const result=await authenticate(username,password);if(!result)throw new Error('No se pudo iniciar la sesión');
+  const result=await authenticate(username,password);if(!result.ok)throw new Error('No se pudo iniciar la sesión');
   return new Response(null,{status:303,headers:{Location:'/', 'Set-Cookie':sessionCookie(result.token),'Cache-Control':'no-store'}});
  }catch(e){const msg=e instanceof Error?e.message:'No se pudo crear el acceso';return new Response(null,{status:303,headers:{Location:'/?setup_error='+encodeURIComponent(msg),'Cache-Control':'no-store'}});}
 }

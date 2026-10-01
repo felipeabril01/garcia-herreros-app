@@ -43,6 +43,37 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   return {member:{id:m.id,name:m.name,title:m.title,role:m.role,coachId:m.coach_id,owner:!!m.owner},clubEmail:CLUB_EMAIL,categories,athletes:await enrichEligibility(permitted),staff,schedule:weeklySessions.filter(s=>m.role===ADMIN||s.coaches.includes(m.coach_id))};
  }
  if(path[0]==='athletes'&&method==='POST'&&path.length===1){requireAdmin(m);const v=athleteValues(body);const id=str(body.requestId,'identificador',36);if(!/^[0-9a-f-]{36}$/.test(id))fail(400,'Identificador inválido');const previous:any=await database.prepare('SELECT id,created_by FROM athletes WHERE id=?').bind(id).first();if(previous){if(previous.created_by!==m.id)fail(409,'Identificador no disponible');return {id};}const time=now();const keys=Object.keys(v);await database.batch([database.prepare(`INSERT INTO athletes(id,${keys.join(',')},status,created_by,created_at,updated_at,version) VALUES (${Array(keys.length+5).fill('?').join(',')},1)`).bind(id,...Object.values(v),'active',m.id,time,time),auditStmt(m.id,'athlete_created',id)]);return {id};}
+ if(path[0]==='athletes'&&path[1]&&path[2]==='status'&&method==='PUT'){
+  requireAdmin(m);
+  const a:any=await athleteFor(path[1],m);
+  const status=body?.status;
+  if(!['active','inactive'].includes(status))fail(400,'Estado inválido');
+  if(status===a.status)return {id:a.id,status};
+  await database.batch([
+    database.prepare('UPDATE athletes SET status=?,updated_at=?,version=version+1 WHERE id=?').bind(status,now(),a.id),
+    auditStmt(m.id,status==='inactive'?'athlete_deactivated':'athlete_reactivated',a.id)
+  ]);
+  return {id:a.id,status};
+ }
+ if(path[0]==='athletes'&&path[1]&&path.length===2&&method==='DELETE'){
+  requireAdmin(m);
+  const a:any=await athleteFor(path[1],m);
+  const [measurements,payments,charges,billing,exceptions,sessions]=await Promise.all([
+    database.prepare('SELECT COUNT(*) AS n FROM measurements WHERE athlete_id=?').bind(a.id).first(),
+    database.prepare('SELECT COUNT(*) AS n FROM payments WHERE athlete_id=?').bind(a.id).first(),
+    database.prepare('SELECT COUNT(*) AS n FROM charges WHERE athlete_id=?').bind(a.id).first(),
+    database.prepare('SELECT COUNT(*) AS n FROM billing WHERE athlete_id=?').bind(a.id).first(),
+    database.prepare('SELECT COUNT(*) AS n FROM exceptions WHERE athlete_id=?').bind(a.id).first(),
+    database.prepare('SELECT COUNT(*) AS n FROM sessions WHERE attendance_json LIKE ?').bind('%'+a.id+'%').first()
+  ]);
+  const refs=[measurements,payments,charges,billing,exceptions,sessions].reduce((n:any,r:any)=>n+Number((r as any)?.n||0),0);
+  if(refs>0)fail(409,'Esta ficha ya tiene historial, asistencia o movimientos financieros. Desactívala en lugar de eliminarla.');
+  await database.batch([
+    database.prepare('DELETE FROM athletes WHERE id=?').bind(a.id),
+    auditStmt(m.id,'athlete_deleted',a.id)
+  ]);
+  return {id:a.id,deleted:true};
+ }
  if(path[0]==='athletes'&&path[1]&&path.length===2&&method==='PUT'){requireAdmin(m);const a=await athleteFor(path[1],m);if(body.version!==a.version)fail(409,'La ficha cambió en otra sesión. Recarga antes de editar.');const v=athleteValues(body),keys=Object.keys(v);const results=await database.batch([database.prepare(`UPDATE athletes SET ${keys.map(k=>k+'=?').join(',')},updated_at=?,version=version+1 WHERE id=? AND version=?`).bind(...Object.values(v),now(),a.id,a.version),database.prepare('INSERT INTO audit(id,actor,action,entity_id,created_at) SELECT ?,?,?,?,? WHERE changes()=1').bind(uid(),m.id,'athlete_updated',a.id,now())]);if(!results[0].meta.changes)fail(409,'La ficha cambió. Recarga y vuelve a intentarlo.');return {id:a.id};}
  if(path[0]==='athletes'&&path[1]&&path[2]==='measurements'){
   const a=await athleteFor(path[1],m);

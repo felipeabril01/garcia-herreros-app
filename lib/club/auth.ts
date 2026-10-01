@@ -25,13 +25,13 @@ export function validatePassword(value:string){
  if(typeof value!=='string'||value.length<10||value.length>128||!/[A-Za-zÁÉÍÓÚáéíóúÑñ]/.test(value)||!/[0-9]/.test(value))throw new Error('La contraseña debe tener entre 10 y 128 caracteres e incluir al menos una letra y un número.');
  return value;
 }
-export async function setCredentials(staffId:string,username:string,password:string){
+export async function setCredentials(staffId:string,username:string,password:string,mustChange=false){
  const u=validateUsername(username),p=validatePassword(password),database=db();
  const duplicate:any=await database.prepare('SELECT id FROM staff WHERE username=? AND id<>?').bind(u,staffId).first();
  if(duplicate)throw new Error('Ese nombre de usuario ya está asignado.');
  const salt=randomHex(16),hash=await passwordHash(p,salt,ITERATIONS),now=new Date().toISOString();
  await database.batch([
-  database.prepare('UPDATE staff SET username=?,password_hash=?,password_salt=?,password_iterations=?,password_updated_at=? WHERE id=?').bind(u,hash,salt,ITERATIONS,now,staffId),
+  database.prepare('UPDATE staff SET username=?,password_hash=?,password_salt=?,password_iterations=?,password_updated_at=?,must_change_password=?,failed_login_count=0,locked_until=NULL WHERE id=?').bind(u,hash,salt,ITERATIONS,now,mustChange?1:0,staffId),
   database.prepare('DELETE FROM auth_sessions WHERE staff_id=?').bind(staffId)
  ]);
  return u;
@@ -43,20 +43,30 @@ export async function verifyPasswordForStaff(staffId:string,password:string){
  return safeEqual(hash,row.password_hash);
 }
 export async function authenticate(username:string,password:string){
- const u=normalizeUsername(username),database=db();
+ const u=normalizeUsername(username),database=db(),now=new Date();
  const row:any=await database.prepare('SELECT * FROM staff WHERE username=? AND active=1').bind(u).first();
  if(!row?.password_hash||!row?.password_salt){
   await passwordHash(String(password||''),'00000000000000000000000000000000',ITERATIONS);
-  return null;
+  return {ok:false,reason:'invalid' as const};
+ }
+ if(row.locked_until&&new Date(row.locked_until).getTime()>now.getTime()){
+  return {ok:false,reason:'locked' as const,lockedUntil:row.locked_until};
  }
  const hash=await passwordHash(String(password||''),row.password_salt,Number(row.password_iterations)||ITERATIONS);
- if(!safeEqual(hash,row.password_hash))return null;
- const token=randomHex(32),tokenHash=await sha256(token),id=crypto.randomUUID(),now=new Date(),expires=new Date(now.getTime()+SESSION_SECONDS*1000);
+ if(!safeEqual(hash,row.password_hash)){
+  const failures=Number(row.failed_login_count||0)+1;
+  const lockedUntil=failures>=5?new Date(now.getTime()+15*60*1000).toISOString():null;
+  await database.prepare('UPDATE staff SET failed_login_count=?,locked_until=? WHERE id=?').bind(failures>=5?0:failures,lockedUntil,row.id).run();
+  return {ok:false,reason:lockedUntil?'locked':'invalid' as const,lockedUntil};
+ }
+ const token=randomHex(32),tokenHash=await sha256(token),id=crypto.randomUUID(),expires=new Date(now.getTime()+SESSION_SECONDS*1000);
  await database.batch([
   database.prepare('DELETE FROM auth_sessions WHERE expires_at<=?').bind(now.toISOString()),
-  database.prepare('INSERT INTO auth_sessions(id,staff_id,token_hash,expires_at,created_at,last_seen_at) VALUES (?,?,?,?,?,?)').bind(id,row.id,tokenHash,expires.toISOString(),now.toISOString(),now.toISOString())
+  database.prepare('UPDATE staff SET failed_login_count=0,locked_until=NULL,last_login_at=? WHERE id=?').bind(now.toISOString(),row.id),
+  database.prepare('INSERT INTO auth_sessions(id,staff_id,token_hash,expires_at,created_at,last_seen_at) VALUES (?,?,?,?,?,?)').bind(id,row.id,tokenHash,expires.toISOString(),now.toISOString(),now.toISOString()),
+  database.prepare('INSERT INTO audit(id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)').bind(crypto.randomUUID(),row.id,'login_success',row.id,now.toISOString())
  ]);
- return {staff:row,token,expires};
+ return {ok:true,staff:{...row,failed_login_count:0,locked_until:null,last_login_at:now.toISOString()},token,expires};
 }
 function cookieValue(cookie:string|undefined,name:string){
  if(!cookie)return null;

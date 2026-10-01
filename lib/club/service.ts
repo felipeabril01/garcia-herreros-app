@@ -101,14 +101,16 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   if(!s||s.owner)fail(400,'No se puede modificar esta cuenta');
   const e=email(body.email,false),name=str(body.name,'nombre',100);
   if(typeof body.active!=='boolean')fail(400,'Estado inválido');
-  const username=validateUsername(str(body.username,'usuario',40));
+  let username='';
+  try{username=validateUsername(str(body.username,'usuario',40));}
+  catch(err){fail(400,err instanceof Error?err.message:'Revisa el usuario');}
   const duplicate:any=await database.prepare('SELECT id FROM staff WHERE username=? AND id<>?').bind(username,s.id).first();
   if(duplicate)fail(409,'Ese nombre de usuario ya está asignado.');
-  await database.prepare('UPDATE staff SET name=?,email=?,username=?,active=? WHERE id=?').bind(name,e||null,username,body.active?1:0,s.id).run();
   if(body.password){
    try{await setCredentials(s.id,username,String(body.password));}
    catch(err){fail(400,err instanceof Error?err.message:'Revisa la contraseña');}
   }else if(!s.password_hash)fail(400,'Define una contraseña inicial para este usuario.');
+  await database.prepare('UPDATE staff SET name=?,email=?,username=?,active=? WHERE id=?').bind(name,e||null,username,body.active?1:0,s.id).run();
   await auditStmt(m.id,'staff_access_updated',s.id).run();
   return {id:s.id};
  }

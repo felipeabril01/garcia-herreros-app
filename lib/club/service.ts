@@ -2,6 +2,7 @@ import { db } from './db';
 import { CLUB, CLUB_EMAIL, BOOTSTRAP_EMAIL, weeklySessions } from './config';
 import { HttpError } from './errors';
 import { financeHandle, enrichEligibility, ensureMonthlyCharges } from './finance';
+import { setCredentials,validateUsername } from './auth';
 export { HttpError } from './errors';
 export type Identity={userId?:string,email?:string,staffId?:string};
 const fail=(status:number,msg:string):never=>{throw new HttpError(status,msg)};
@@ -94,7 +95,23 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
    const results=await database.batch([statement,database.prepare('INSERT INTO audit(id,actor,action,entity_id,created_at) SELECT ?,?,?,?,? WHERE changes()=1').bind(uid(),m.id,body.operation==='attendance'?'attendance_saved':'session_updated',s.id,now())]);if(!results[0].meta.changes)fail(409,'La sesión cambió en otra ventana. Recarga antes de guardar.');return {id:s.id,version:(existing?.version||0)+1};
   }
  }
- if(path[0]==='staff'&&path[1]&&method==='PUT'){if(!m.owner)fail(403,'Solo el responsable inicial puede configurar accesos.');const s:any=await database.prepare('SELECT * FROM staff WHERE id=?').bind(path[1]).first();if(!s||s.owner)fail(400,'No se puede modificar esta cuenta');const e=email(body.email,false),name=str(body.name,'nombre',100);if(s.auth_id&&e!==s.email)fail(409,'Esta cuenta ya está vinculada. Desactívala antes de solicitar un cambio de identidad.');if(typeof body.active!=='boolean')fail(400,'Estado inválido');await database.batch([database.prepare('UPDATE staff SET name=?,email=?,active=? WHERE id=?').bind(name,e||null,body.active?1:0,s.id),auditStmt(m.id,'staff_access_updated',s.id)]);return {id:s.id};}
+ if(path[0]==='staff'&&path[1]&&method==='PUT'){
+  if(!m.owner)fail(403,'Solo el responsable inicial puede configurar accesos.');
+  const s:any=await database.prepare('SELECT * FROM staff WHERE id=?').bind(path[1]).first();
+  if(!s||s.owner)fail(400,'No se puede modificar esta cuenta');
+  const e=email(body.email,false),name=str(body.name,'nombre',100);
+  if(typeof body.active!=='boolean')fail(400,'Estado inválido');
+  const username=validateUsername(str(body.username,'usuario',40));
+  const duplicate:any=await database.prepare('SELECT id FROM staff WHERE username=? AND id<>?').bind(username,s.id).first();
+  if(duplicate)fail(409,'Ese nombre de usuario ya está asignado.');
+  await database.prepare('UPDATE staff SET name=?,email=?,username=?,active=? WHERE id=?').bind(name,e||null,username,body.active?1:0,s.id).run();
+  if(body.password){
+   try{await setCredentials(s.id,username,String(body.password));}
+   catch(err){fail(400,err instanceof Error?err.message:'Revisa la contraseña');}
+  }else if(!s.password_hash)fail(400,'Define una contraseña inicial para este usuario.');
+  await auditStmt(m.id,'staff_access_updated',s.id).run();
+  return {id:s.id};
+ }
  if(path[0]==='audit'&&method==='GET'){requireAdmin(m);return {events:(await database.prepare('SELECT audit.*,staff.name AS actor_name FROM audit LEFT JOIN staff ON audit.actor=staff.id ORDER BY created_at DESC LIMIT 30').all()).results};}
  fail(404,'Operación no disponible');
 }

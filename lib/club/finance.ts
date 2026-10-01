@@ -24,6 +24,7 @@ export async function ensureMonthlyCharges(asOf=financeDate()){
  for(let i=0;i<stmts.length;i+=40)await db().batch(stmts.slice(i,i+40));
 }
 export function eligibility(a:any,charges:any[],exceptions:any[],profile:any,asOf:string){
+ if(a.status==='incomplete')return {status:'review',label:'Registro incompleto',evaluatedAt:asOf};
  if(asOf<CUTOFF+'-01')return {status:'scheduled',label:'Control desde 1 oct.',evaluatedAt:asOf};
  const overdue=charges.some(c=>c.athlete_id===a.id&&c.kind==='mensualidad'&&c.status==='active'&&c.balance>0&&asOf>=c.period+'-16');
  const exception=exceptions.find(e=>e.athlete_id===a.id&&!e.revoked_at&&e.start_date<=asOf&&e.end_date>=asOf);
@@ -42,7 +43,7 @@ export async function financeHandle(method:string,path:string[],body:any,m:any){
   return {cutoff:CUTOFF,today:financeDate(),charges:cs,payments:ps,billing:(await database.prepare('SELECT * FROM billing').all()).results,exceptions:(await database.prepare('SELECT exceptions.*,staff.name AS author FROM exceptions LEFT JOIN staff ON staff.id=exceptions.created_by ORDER BY exceptions.created_at DESC').all()).results};
  }
  if(method==='POST'&&path[0]==='activate'){
-  const a=await athlete(body.athleteId),start=month(body.startMonth);if(start<CUTOFF||start>financeDate().slice(0,7)&&start!==CUTOFF)fail(400,'El inicio debe ser octubre de 2026 o un mes posterior ya iniciado.');
+  const a=await athlete(body.athleteId);if(a.status!=='active')fail(400,'Completa la ficha del deportista antes de activar su cuenta.');const start=month(body.startMonth);if(start<CUTOFF||start>financeDate().slice(0,7)&&start!==CUTOFF)fail(400,'El inicio debe ser octubre de 2026 o un mes posterior ya iniciado.');
   if(body.verified!==true)fail(400,'Confirma el mes de inicio y la revisión de saldos.');
   const current:any=await database.prepare('SELECT * FROM billing WHERE athlete_id=?').bind(a.id).first();if(current){if(current.start_month!==start)fail(409,'La cuenta ya tiene un inicio establecido; no se modificó.');return {athleteId:a.id};}
   const stmts=[database.prepare('INSERT OR IGNORE INTO billing(athlete_id,start_month,annual_start_year,created_by,created_at) VALUES (?,?,?,?,?)').bind(a.id,start,Number(start.slice(0,4))+1,m.id,now())];

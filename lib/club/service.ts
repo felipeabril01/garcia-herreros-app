@@ -2,7 +2,7 @@ import { db } from './db';
 import { CLUB, CLUB_EMAIL, BOOTSTRAP_EMAIL, weeklySessions } from './config';
 import { HttpError } from './errors';
 import { financeHandle, enrichEligibility, ensureMonthlyCharges } from './finance';
-import { setCredentials,validateUsername } from './auth';
+import { setCredentials,validateUsername,verifyPasswordForStaff } from './auth';
 export { HttpError } from './errors';
 export type Identity={userId?:string,email?:string,staffId?:string};
 const fail=(status:number,msg:string):never=>{throw new HttpError(status,msg)};
@@ -47,6 +47,17 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   const categories=m.role===ADMIN?CLUB.categories:coachCategories(m.coach_id);const result=await database.prepare('SELECT * FROM athletes ORDER BY name').all();const staff=m.role===ADMIN?(await database.prepare('SELECT id,name,title,role,coach_id,email,username,active,owner,(password_hash IS NOT NULL) AS has_password FROM staff ORDER BY owner DESC,role,name').all()).results:[];
   const permitted=result.results.filter((a:any)=>categories.includes(a.category)).map(a=>publicAthlete(a,m));
   return {member:{id:m.id,name:m.name,title:m.title,role:m.role,coachId:m.coach_id,owner:!!m.owner},clubEmail:CLUB_EMAIL,categories,athletes:await enrichEligibility(permitted),staff,schedule:weeklySessions.filter(s=>m.role===ADMIN||s.coaches.includes(m.coach_id))};
+ }
+ if(path[0]==='account'&&path[1]==='password'&&method==='PUT'){
+  const current=str(body.currentPassword,'contraseña actual',128);
+  const next=str(body.newPassword,'nueva contraseña',128);
+  const confirm=str(body.confirmPassword,'confirmación',128);
+  if(next!==confirm)fail(400,'Las contraseñas nuevas no coinciden.');
+  if(!(await verifyPasswordForStaff(m.id,current)))fail(400,'La contraseña actual no es correcta.');
+  try{await setCredentials(m.id,m.username,next);}
+  catch(err){fail(400,err instanceof Error?err.message:'Revisa la nueva contraseña');}
+  await auditStmt(m.id,'password_changed',m.id).run();
+  return {ok:true};
  }
  if(path[0]==='athletes'&&method==='POST'&&path.length===1){requireAdmin(m);const v=athleteValues(body);const id=str(body.requestId,'identificador',36);if(!/^[0-9a-f-]{36}$/.test(id))fail(400,'Identificador inválido');const previous:any=await database.prepare('SELECT id,created_by FROM athletes WHERE id=?').bind(id).first();if(previous){if(previous.created_by!==m.id)fail(409,'Identificador no disponible');return {id};}const time=now();const keys=Object.keys(v);await database.batch([database.prepare(`INSERT INTO athletes(id,${keys.join(',')},status,created_by,created_at,updated_at,version) VALUES (${Array(keys.length+5).fill('?').join(',')},1)`).bind(id,...Object.values(v),'active',m.id,time,time),auditStmt(m.id,'athlete_created',id)]);return {id};}
  if(path[0]==='athletes'&&path[1]&&path[2]==='status'&&method==='PUT'){

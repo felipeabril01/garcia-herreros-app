@@ -1,5 +1,24 @@
 import { getChatGPTUser } from './chatgpt-auth';
+import { getLocalUser,ownerNeedsSetup } from '../lib/club/auth';
 import { member,HttpError } from '../lib/club/service';
+import { loginPage,setupPage } from '../lib/club/login-pages';
 import { shell } from '../lib/club/shell';
 export const dynamic='force-dynamic';
-export async function GET(){try{const user=await getChatGPTUser();if(!user)return new Response('<!doctype html><html lang="es"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Acceso al club</title><body style="font:18px system-ui;padding:40px;max-width:650px;margin:auto"><h1>García Herreros FC</h1><p>No se recibió una identidad válida de Cloudflare Access.</p><a href="/cdn-cgi/access/logout">Volver a iniciar sesión</a></body></html>',{status:401,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});await member(user);return new Response(shell,{headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin'}});}catch(e){const status=e instanceof HttpError?e.status:503;return new Response('<!doctype html><html lang="es"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Acceso al club</title><body style="font:18px system-ui;padding:40px;max-width:650px;margin:auto"><h1>García Herreros FC</h1><p>'+(status===403?'Tu cuenta todavía no tiene acceso asignado. Contacta al coordinador.':'No pudimos abrir la base del club. Vuelve a intentarlo en unos momentos.')+'</p><a href="/">Reintentar</a> · <a href="/cdn-cgi/access/logout">Cambiar de cuenta</a></body></html>',{status,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});}}
+const htmlHeaders={'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin'};
+export async function GET(req:Request){
+ try{
+  const local:any=await getLocalUser();
+  if(local){await member({staffId:local.id});return new Response(shell,{headers:htmlHeaders});}
+  const url=new URL(req.url),access=await getChatGPTUser();
+  if(access){
+   try{
+    const m:any=await member(access);
+    if(m.owner&&await ownerNeedsSetup())return new Response(setupPage(url.searchParams.get('setup_error')||''),{headers:htmlHeaders});
+   }catch{}
+  }
+  return new Response(loginPage(url.searchParams.get('error')||''),{headers:htmlHeaders});
+ }catch(e){
+  const status=e instanceof HttpError?e.status:503;
+  return new Response(loginPage(status===403?'Tu usuario está desactivado o no tiene acceso.':'No pudimos abrir la base del club. Vuelve a intentarlo.'),{status,headers:htmlHeaders});
+ }
+}

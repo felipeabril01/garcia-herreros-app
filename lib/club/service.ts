@@ -44,8 +44,8 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
  if(path[0]==='finance')return financeHandle(method,path.slice(1),body,m);
  if(method==='GET'&&path[0]==='bootstrap'){
   await ensureMonthlyCharges();
-  const categories=m.role===ADMIN?CLUB.categories:coachCategories(m.coach_id);const result=await database.prepare('SELECT * FROM athletes ORDER BY name').all();const staff=m.role===ADMIN?(await database.prepare('SELECT id,name,title,role,coach_id,email,username,active,owner,(password_hash IS NOT NULL) AS has_password FROM staff ORDER BY owner DESC,role,name').all()).results:[];
-  const permitted=result.results.filter((a:any)=>categories.includes(a.category)).map(a=>publicAthlete(a,m));
+  const result=await database.prepare('SELECT * FROM athletes ORDER BY name').all();const extraCategories=[...new Set(result.results.map((a:any)=>a.category).filter((x:any)=>x&&!CLUB.categories.includes(x)))];const categories=m.role===ADMIN?[...CLUB.categories,...extraCategories]:coachCategories(m.coach_id);const staff=m.role===ADMIN?(await database.prepare('SELECT id,name,title,role,coach_id,email,username,active,owner,(password_hash IS NOT NULL) AS has_password FROM staff ORDER BY owner DESC,role,name').all()).results:[];
+  const permitted=(m.role===ADMIN?result.results:result.results.filter((a:any)=>categories.includes(a.category))).map(a=>publicAthlete(a,m));
   return {member:{id:m.id,name:m.name,title:m.title,role:m.role,coachId:m.coach_id,owner:!!m.owner},clubEmail:CLUB_EMAIL,categories,athletes:await enrichEligibility(permitted),staff,schedule:weeklySessions.filter(s=>m.role===ADMIN||s.coaches.includes(m.coach_id))};
  }
  if(path[0]==='account'&&path[1]==='password'&&method==='PUT'){
@@ -58,6 +58,24 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   catch(err){fail(400,err instanceof Error?err.message:'Revisa la nueva contraseña');}
   await auditStmt(m.id,'password_changed',m.id).run();
   return {ok:true};
+ }
+ if(path[0]==='athletes'&&path[1]==='preregister'&&method==='POST'){
+  requireAdmin(m);
+  const id=str(body.requestId,'identificador',36);
+  if(!/^[0-9a-f-]{36}$/.test(id))fail(400,'Identificador inválido');
+  const name=str(body.name,'nombre',100),dob=date(body.dob,'nacimiento');
+  if(dob>bogotaDate()||dob<'1990-01-01')fail(400,'Revisa la fecha de nacimiento');
+  const docType=str(body.docType,'tipo de documento',30,false),docNumber=str(body.docNumber,'documento',40,false);
+  const cat=str(body.category,'categoría',30);
+  if(![...CLUB.categories,'Por definir'].includes(cat))fail(400,'Categoría inválida');
+  const existing:any=docNumber?await database.prepare('SELECT id FROM athletes WHERE doc_number=?').bind(docNumber).first():null;
+  if(existing)return {id:existing.id,skipped:true};
+  const time=now();
+  await database.batch([
+   database.prepare("INSERT INTO athletes(id,name,dob,category,doc_type,doc_number,address,guardian,relationship,phone,email,emergency_name,emergency_relation,emergency_phone,health_notes,modality,consent,consent_date,status,created_by,created_at,updated_at,version) VALUES (?,?,?,?,?,?, '', '', '', '', NULL, '', '', '', '', '', 0, '', 'incomplete', ?, ?, ?, 1)").bind(id,name,dob,cat,docType||null,docNumber||null,m.id,time,time),
+   auditStmt(m.id,'athlete_preregistered',id)
+  ]);
+  return {id,status:'incomplete'};
  }
  if(path[0]==='athletes'&&method==='POST'&&path.length===1){requireAdmin(m);const v=athleteValues(body);const id=str(body.requestId,'identificador',36);if(!/^[0-9a-f-]{36}$/.test(id))fail(400,'Identificador inválido');const previous:any=await database.prepare('SELECT id,created_by FROM athletes WHERE id=?').bind(id).first();if(previous){if(previous.created_by!==m.id)fail(409,'Identificador no disponible');return {id};}const time=now();const keys=Object.keys(v);await database.batch([database.prepare(`INSERT INTO athletes(id,${keys.join(',')},status,created_by,created_at,updated_at,version) VALUES (${Array(keys.length+5).fill('?').join(',')},1)`).bind(id,...Object.values(v),'active',m.id,time,time),auditStmt(m.id,'athlete_created',id)]);return {id};}
  if(path[0]==='athletes'&&path[1]&&path[2]==='status'&&method==='PUT'){
@@ -91,7 +109,7 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   ]);
   return {id:a.id,deleted:true};
  }
- if(path[0]==='athletes'&&path[1]&&path.length===2&&method==='PUT'){requireAdmin(m);const a=await athleteFor(path[1],m);if(body.version!==a.version)fail(409,'La ficha cambió en otra sesión. Recarga antes de editar.');const v=athleteValues(body),keys=Object.keys(v);const results=await database.batch([database.prepare(`UPDATE athletes SET ${keys.map(k=>k+'=?').join(',')},updated_at=?,version=version+1 WHERE id=? AND version=?`).bind(...Object.values(v),now(),a.id,a.version),database.prepare('INSERT INTO audit(id,actor,action,entity_id,created_at) SELECT ?,?,?,?,? WHERE changes()=1').bind(uid(),m.id,'athlete_updated',a.id,now())]);if(!results[0].meta.changes)fail(409,'La ficha cambió. Recarga y vuelve a intentarlo.');return {id:a.id};}
+ if(path[0]==='athletes'&&path[1]&&path.length===2&&method==='PUT'){requireAdmin(m);const a=await athleteFor(path[1],m);if(body.version!==a.version)fail(409,'La ficha cambió en otra sesión. Recarga antes de editar.');const v=athleteValues(body),keys=Object.keys(v),newStatus=a.status==='incomplete'?'active':a.status;const results=await database.batch([database.prepare(`UPDATE athletes SET ${keys.map(k=>k+'=?').join(',')},status=?,updated_at=?,version=version+1 WHERE id=? AND version=?`).bind(...Object.values(v),newStatus,now(),a.id,a.version),database.prepare('INSERT INTO audit(id,actor,action,entity_id,created_at) SELECT ?,?,?,?,? WHERE changes()=1').bind(uid(),m.id,a.status==='incomplete'?'athlete_completed':'athlete_updated',a.id,now())]);if(!results[0].meta.changes)fail(409,'La ficha cambió. Recarga y vuelve a intentarlo.');return {id:a.id,status:newStatus};}
  if(path[0]==='athletes'&&path[1]&&path[2]==='measurements'){
   const a=await athleteFor(path[1],m);
   if(method==='GET')return {measurements:(await database.prepare('SELECT measurements.*,staff.name AS recorder FROM measurements LEFT JOIN staff ON staff.id=measurements.created_by WHERE athlete_id=? ORDER BY date DESC,created_at DESC').bind(a.id).all()).results};

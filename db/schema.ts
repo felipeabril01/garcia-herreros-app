@@ -1,7 +1,7 @@
 import { sqliteTable, text, integer, real, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
 export const staff = sqliteTable('staff', {
- id:text('id').primaryKey(),name:text('name').notNull(),title:text('title').notNull(),role:text('role').notNull(),coachId:text('coach_id'),email:text('email'),authId:text('auth_id'),active:integer('active').notNull().default(1),owner:integer('owner').notNull().default(0)
-},t=>[uniqueIndex('staff_email_unique').on(t.email),uniqueIndex('staff_auth_unique').on(t.authId)]);
+ id:text('id').primaryKey(),name:text('name').notNull(),title:text('title').notNull(),role:text('role').notNull(),coachId:text('coach_id'),email:text('email'),authId:text('auth_id'),username:text('username'),passwordHash:text('password_hash'),passwordSalt:text('password_salt'),passwordIterations:integer('password_iterations'),passwordUpdatedAt:text('password_updated_at'),active:integer('active').notNull().default(1),owner:integer('owner').notNull().default(0)
+},t=>[uniqueIndex('staff_email_unique').on(t.email),uniqueIndex('staff_auth_unique').on(t.authId),uniqueIndex('staff_username_unique').on(t.username)]);
 export const athletes = sqliteTable('athletes',{
  id:text('id').primaryKey(),name:text('name').notNull(),dob:text('dob').notNull(),category:text('category').notNull(),docType:text('doc_type'),docNumber:text('doc_number'),address:text('address'),guardian:text('guardian').notNull(),relationship:text('relationship').notNull(),phone:text('phone').notNull(),email:text('email'),emergencyName:text('emergency_name').notNull(),emergencyRelation:text('emergency_relation').notNull(),emergencyPhone:text('emergency_phone').notNull(),healthNotes:text('health_notes'),modality:text('modality').notNull(),consent:integer('consent').notNull(),consentDate:text('consent_date').notNull(),status:text('status').notNull().default('active'),createdBy:text('created_by').notNull(),createdAt:text('created_at').notNull(),updatedAt:text('updated_at').notNull(),version:integer('version').notNull().default(1)
 },t=>[uniqueIndex('athletes_document_unique').on(t.docNumber),index('athletes_category_idx').on(t.category)]);
@@ -23,3 +23,5 @@ export const allocations = sqliteTable('allocations',{
 export const exceptions = sqliteTable('exceptions',{
  id:text('id').primaryKey(),athleteId:text('athlete_id').notNull().references(()=>athletes.id),startDate:text('start_date').notNull(),endDate:text('end_date').notNull(),reason:text('reason').notNull(),createdBy:text('created_by').notNull(),createdAt:text('created_at').notNull(),revokedAt:text('revoked_at'),revokedBy:text('revoked_by')
 },t=>[index('exceptions_athlete_idx').on(t.athleteId)]);
+
+export const authSessions = sqliteTable('auth_sessions',{id:text('id').primaryKey(),staffId:text('staff_id').notNull().references(()=>staff.id,{onDelete:'cascade'}),tokenHash:text('token_hash').notNull(),expiresAt:text('expires_at').notNull(),createdAt:text('created_at').notNull(),lastSeenAt:text('last_seen_at').notNull()},t=>[uniqueIndex('auth_sessions_token_unique').on(t.tokenHash),index('auth_sessions_staff_idx').on(t.staffId),index('auth_sessions_expires_idx').on(t.expiresAt)]);

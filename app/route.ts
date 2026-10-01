@@ -1,14 +1,14 @@
 import { getChatGPTUser } from './chatgpt-auth';
 import { getLocalUser,ownerNeedsSetup } from '../lib/club/auth';
 import { member,HttpError } from '../lib/club/service';
-import { loginPage,setupPage } from '../lib/club/login-pages';
+import { loginPage,setupPage,forcePasswordPage } from '../lib/club/login-pages';
 import { shell } from '../lib/club/shell';
 export const dynamic='force-dynamic';
 const htmlHeaders={'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin'};
 export async function GET(req:Request){
  try{
   const local:any=await getLocalUser();
-  if(local){await member({staffId:local.id});return new Response(shell,{headers:htmlHeaders});}
+  if(local){await member({staffId:local.id});const url=new URL(req.url);if(local.must_change_password)return new Response(forcePasswordPage(url.searchParams.get('force_error')||''),{headers:htmlHeaders});return new Response(shell,{headers:htmlHeaders});}
   const url=new URL(req.url),access=await getChatGPTUser();
   if(access){
    try{

@@ -118,10 +118,11 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   const duplicate:any=await database.prepare('SELECT id FROM staff WHERE username=? AND id<>?').bind(username,s.id).first();
   if(duplicate)fail(409,'Ese nombre de usuario ya está asignado.');
   if(body.password){
-   try{await setCredentials(s.id,username,String(body.password));}
+   try{await setCredentials(s.id,username,String(body.password),true);}
    catch(err){fail(400,err instanceof Error?err.message:'Revisa la contraseña');}
   }else if(!s.password_hash)fail(400,'Define una contraseña inicial para este usuario.');
   await database.prepare('UPDATE staff SET name=?,email=?,username=?,active=? WHERE id=?').bind(name,e||null,username,body.active?1:0,s.id).run();
+  if(body.password&&s.password_hash)await auditStmt(m.id,'password_reset_admin',s.id).run();
   await auditStmt(m.id,'staff_access_updated',s.id).run();
   return {id:s.id};
  }

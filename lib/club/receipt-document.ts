@@ -32,9 +32,11 @@ export function buildReceiptModel(p:any,lines:any[],currentBalance:number):Recei
   };
 }
 
-export function receiptHtml(m:ReceiptModel){
+export function receiptHtml(m:ReceiptModel,assetBase=''){
+  const base=String(assetBase||'').replace(/\/$/,'');
+  const logo=base?base+'/escudo.jpeg':'/escudo.jpeg';
   return '<article class="receipt institutional-receipt">'+
-    '<div class="receipt-brand"><img src="/escudo.jpeg" alt="Escudo García Herreros FC" width="76" height="96"><div>'+
+    '<div class="receipt-brand"><img src="'+htmlEsc(logo)+'" alt="Escudo García Herreros FC" width="76" height="96"><div>'+
     '<div class="receipt-club">GARCÍA HERREROS FC</div><p>CLUB DE FÚTBOL</p><p class="receipt-email">cdgarciaherrerosfc2014@gmail.com</p></div></div>'+
     '<div class="receipt-heading"><div><span class="receipt-label">COMPROBANTE DE PAGO</span><h2>'+htmlEsc(m.number)+'</h2></div>'+
     '<span class="receipt-status '+(m.status==='void'?'is-void':'')+'">'+htmlEsc(m.statusLabel)+'</span></div>'+

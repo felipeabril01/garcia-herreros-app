@@ -32,21 +32,21 @@ const views={dashboard,players,attendance:()=>placeholder('ASISTENCIA','Asistenc
 function render(){document.querySelector('#viewRoot').innerHTML=views[state.view]();$$('.nav-item').forEach(b=>b.classList.toggle('active',b.dataset.view===state.view));$('#breadcrumb').innerHTML='Mi club <span>/</span> <strong>'+labels[state.view]+'</strong>';bind();if(window.lucide)lucide.createIcons()}
 function go(v){state.view=v;render();closeMenu()}
 function bind(){
-  $$('[data-view-link]').forEach(b=>b.onclick=()=>go(b.dataset.viewLink));
-  $$('[data-open-player]').forEach(b=>b.onclick=()=>openPlayerForm());
-  $$('[data-player]').forEach(b=>b.onclick=()=>showPlayer(b.dataset.player));
+  $('[data-view-link]').forEach(b=>b.onclick=()=>go(b.dataset.viewLink));
+  $('[data-open-player]').forEach(b=>b.onclick=()=>openPlayerForm());
+  $('[data-player]').forEach(b=>b.onclick=()=>showPlayer(b.dataset.player));
   const search=$('#playerSearch'),filter=$('#playerCategoryFilter');
   if(search&&filter){
     const apply=()=>{
       const q=search.value.trim().toLowerCase(),cat=filter.value;
       const rows=state.players.filter(p=>(!q||p.name.toLowerCase().includes(q)||(p.guardian||'').toLowerCase().includes(q))&&(!cat||p.category===cat));
       $('#playersTable').innerHTML=playersTable(rows);
-      $$('[data-player]').forEach(b=>b.onclick=()=>showPlayer(b.dataset.player));
+      $('[data-player]').forEach(b=>b.onclick=()=>showPlayer(b.dataset.player));
     };
     search.oninput=apply;filter.onchange=apply;
   }
 }
-$$('.nav-item').forEach(b=>b.onclick=()=>go(b.dataset.view));
+$('.nav-item').forEach(b=>b.onclick=()=>go(b.dataset.view));
 function openPlayerForm(p=null){
   $('#playerFormTitle').textContent=p?'Editar deportista':'Registrar deportista';
   $('#playerFormSubmit').textContent=p?'Guardar cambios':'Guardar ficha';

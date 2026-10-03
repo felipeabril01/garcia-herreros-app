@@ -10,8 +10,8 @@ function money(n:number){return new Intl.NumberFormat('es-CO',{style:'currency',
 
 export async function POST(req:Request,{params}:{params:Promise<{id:string}>}){
   try{
-    const origin=req.headers.get('origin');
-    if(!origin||origin!==new URL(req.url).origin)return Response.json({error:'Origen no válido.'},{status:403});
+    const requestOrigin=req.headers.get('origin');
+    if(!requestOrigin||requestOrigin!==new URL(req.url).origin)return Response.json({error:'Origen no válido.'},{status:403});
     const user:any=await getLocalUser();
     if(!user)return Response.json({error:'Inicia sesión para continuar.'},{status:401});
     if(user.role!=='admin')return Response.json({error:'Solo los administrativos pueden enviar comprobantes.'},{status:403});
@@ -28,15 +28,15 @@ export async function POST(req:Request,{params}:{params:Promise<{id:string}>}){
     const balances:any[]=(await database.prepare("SELECT c.*,c.amount-COALESCE((SELECT SUM(al.amount) FROM allocations al JOIN payments p2 ON p2.id=al.payment_id WHERE al.charge_id=c.id AND p2.status='confirmed'),0) AS balance FROM charges c WHERE c.athlete_id=?").bind(p.athlete_id).all()).results as any[];
     const currentBalance=balances.filter(c=>c.status==='active').reduce((s,c)=>s+Number(c.balance||0),0);
     const receiptModel=buildReceiptModel(p,lines,currentBalance);
-    const origin=new URL(req.url).origin;
+    const appOrigin=new URL(req.url).origin;
     const browser=(env as unknown as {BROWSER?:{quickAction:(action:string,input:any)=>Promise<Response>}}).BROWSER;
     if(!browser)return Response.json({error:'El generador institucional de PDF todavía no está disponible.'},{status:503});
-    const document='<!doctype html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+receiptModel.number+'</title></head><body>'+receiptHtml(receiptModel,origin)+'</body></html>';
+    const document='<!doctype html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+receiptModel.number+'</title></head><body>'+receiptHtml(receiptModel,appOrigin)+'</body></html>';
     let pdf:Uint8Array;
     try{
       const rendered=await browser.quickAction('pdf',{
         html:document,
-        addStyleTag:[{url:origin+'/receipt.css'}],
+        addStyleTag:[{url:appOrigin+'/receipt.css'}],
         pdfOptions:{
           format:'a4',
           landscape:false,

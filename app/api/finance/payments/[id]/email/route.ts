@@ -60,7 +60,7 @@ export async function POST(req:Request,{params}:{params:Promise<{id:string}>}){
       method:'POST',
       headers:{'Authorization':'Bearer '+apiKey,'Content-Type':'application/json'},
       body:JSON.stringify({
-        from:'García Herreros FC <onboarding@resend.dev>',
+        from:'García Herreros FC <pagos@garciaherrerosfc.com>',
         to:[p.guardian_email],
         subject:'García Herreros FC · Comprobante de pago '+receipt,
         html,

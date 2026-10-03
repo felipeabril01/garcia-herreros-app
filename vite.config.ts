@@ -34,6 +34,9 @@ const localBindingConfig = {
         },
       ]
     : [],
+  browser: {
+    binding: "BROWSER",
+  },
 };
 
 export default defineConfig(async ({ command }) => {

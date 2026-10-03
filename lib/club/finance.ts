@@ -1,5 +1,6 @@
 import {db} from './db';
 import {HttpError} from './errors';
+import {buildReceiptModel,receiptHtml} from './receipt-document';
 export const CUTOFF='2026-10';
 const now=()=>new Date().toISOString();
 export const financeDate=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Bogota',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
@@ -79,7 +80,7 @@ export async function financeHandle(method:string,path:string[],body:any,m:any){
  if(method==='GET'&&path[0]==='payments'&&path[1]){
   const p:any=await database.prepare('SELECT payments.*,staff.name AS recorder FROM payments LEFT JOIN staff ON staff.id=payments.created_by WHERE payments.id=?').bind(Number(path[1])).first();if(!p)fail(404,'Comprobante no encontrado');
   const lines=(await database.prepare('SELECT allocations.amount,charges.kind,charges.period,charges.source FROM allocations JOIN charges ON charges.id=allocations.charge_id WHERE allocations.payment_id=? ORDER BY charges.period').bind(p.id).all()).results;
-  const cs=(await database.prepare(balancesSQL+' WHERE c.athlete_id=?').bind(p.athlete_id).all()).results;return {payment:p,lines,currentBalance:cs.filter((c:any)=>c.status==='active').reduce((s:number,c:any)=>s+c.balance,0)};
+  const cs=(await database.prepare(balancesSQL+' WHERE c.athlete_id=?').bind(p.athlete_id).all()).results;const currentBalance=cs.filter((c:any)=>c.status==='active').reduce((s:number,c:any)=>s+c.balance,0);const receipt=buildReceiptModel(p,lines,currentBalance);return {payment:p,lines,currentBalance,receipt,receiptHtml:receiptHtml(receipt)};
  }
  if(method==='POST'&&path[0]==='payments'&&path[1]&&path[2]==='void'){
   const reason=str(body.reason,'motivo de anulación',500),p:any=await database.prepare('SELECT * FROM payments WHERE id=?').bind(Number(path[1])).first();if(!p)fail(404,'Pago no encontrado');if(p.status==='void')return {id:p.id};

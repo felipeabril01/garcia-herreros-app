@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { getLocalUser } from '../../../../../../lib/club/auth';
 import { db } from '../../../../../../lib/club/db';
-import { receiptPdf,bytesToBase64 } from '../../../../../../lib/club/receipt-pdf';
+import { buildReceiptModel,receiptHtml,bytesToBase64 } from '../../../../../../lib/club/receipt-document';
 
 export const dynamic='force-dynamic';
 
@@ -10,8 +10,8 @@ function money(n:number){return new Intl.NumberFormat('es-CO',{style:'currency',
 
 export async function POST(req:Request,{params}:{params:Promise<{id:string}>}){
   try{
-    const origin=req.headers.get('origin');
-    if(!origin||origin!==new URL(req.url).origin)return Response.json({error:'Origen no válido.'},{status:403});
+    const requestOrigin=req.headers.get('origin');
+    if(!requestOrigin||requestOrigin!==new URL(req.url).origin)return Response.json({error:'Origen no válido.'},{status:403});
     const user:any=await getLocalUser();
     if(!user)return Response.json({error:'Inicia sesión para continuar.'},{status:401});
     if(user.role!=='admin')return Response.json({error:'Solo los administrativos pueden enviar comprobantes.'},{status:403});
@@ -27,8 +27,33 @@ export async function POST(req:Request,{params}:{params:Promise<{id:string}>}){
     const lines:any[]=(await database.prepare('SELECT allocations.amount,charges.kind,charges.period,charges.source FROM allocations JOIN charges ON charges.id=allocations.charge_id WHERE allocations.payment_id=? ORDER BY charges.period').bind(paymentId).all()).results as any[];
     const balances:any[]=(await database.prepare("SELECT c.*,c.amount-COALESCE((SELECT SUM(al.amount) FROM allocations al JOIN payments p2 ON p2.id=al.payment_id WHERE al.charge_id=c.id AND p2.status='confirmed'),0) AS balance FROM charges c WHERE c.athlete_id=?").bind(p.athlete_id).all()).results as any[];
     const currentBalance=balances.filter(c=>c.status==='active').reduce((s,c)=>s+Number(c.balance||0),0);
-    const pdf=receiptPdf(p,lines,currentBalance);
-    const receipt='GH-'+String(p.id).padStart(6,'0');
+    const receiptModel=buildReceiptModel(p,lines,currentBalance);
+    const appOrigin=new URL(req.url).origin;
+    const browser=(env as unknown as {BROWSER?:{quickAction:(action:string,input:any)=>Promise<Response>}}).BROWSER;
+    if(!browser)return Response.json({error:'El generador institucional de PDF todavía no está disponible.'},{status:503});
+    const document='<!doctype html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+receiptModel.number+'</title></head><body>'+receiptHtml(receiptModel,appOrigin)+'</body></html>';
+    let pdf:Uint8Array;
+    try{
+      const rendered=await browser.quickAction('pdf',{
+        html:document,
+        addStyleTag:[{url:appOrigin+'/receipt.css'}],
+        pdfOptions:{
+          format:'a4',
+          landscape:false,
+          printBackground:true,
+          preferCSSPageSize:true,
+          displayHeaderFooter:false,
+          margin:{top:'0',right:'0',bottom:'0',left:'0'}
+        }
+      });
+      if(!rendered.ok)throw new Error('Browser Run respondió '+rendered.status);
+      pdf=new Uint8Array(await rendered.arrayBuffer());
+      if(pdf.length<1000)throw new Error('El PDF generado está vacío');
+    }catch(error){
+      console.error('Browser PDF',error instanceof Error?error.message:'Unknown');
+      return Response.json({error:'No se pudo generar el comprobante institucional. Intenta nuevamente en unos segundos.'},{status:503});
+    }
+    const receipt=receiptModel.number;
     const html=`<div style="font-family:Arial,sans-serif;color:#14254b;line-height:1.55"><h2 style="margin-bottom:8px">García Herreros FC</h2><p>Apreciado(a) acudiente:</p><p>Reciba un cordial saludo de García Herreros FC.</p><p>Adjuntamos el comprobante <strong>${receipt}</strong> correspondiente al pago registrado para <strong>${safeHtml(p.athlete_name)}</strong> por valor de <strong>${money(Number(p.amount))}</strong>.</p><p>Por favor conserve este mensaje y el archivo adjunto como soporte de la transacción.</p><p>Atentamente,<br><strong>García Herreros FC</strong></p></div>`;
 
     const rr=await fetch('https://api.resend.com/emails',{

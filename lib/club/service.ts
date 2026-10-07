@@ -3,6 +3,7 @@ import { CLUB, CLUB_EMAIL, BOOTSTRAP_EMAIL, weeklySessions } from './config';
 import { HttpError } from './errors';
 import { financeHandle, enrichEligibility, ensureMonthlyCharges } from './finance';
 import { setCredentials,validateUsername,verifyPasswordForStaff } from './auth';
+import { ensureReviewedAthleteImport } from './reviewed-import';
 export { HttpError } from './errors';
 export type Identity={userId?:string,email?:string,staffId?:string};
 const fail=(status:number,msg:string):never=>{throw new HttpError(status,msg)};
@@ -43,6 +44,7 @@ function sessionSpec(id:string,m:any){const split=id.indexOf('_');if(split<0)fai
 export async function handle(method:string,path:string[],body:any,m:any){const database=db();
  if(path[0]==='finance')return financeHandle(method,path.slice(1),body,m);
  if(method==='GET'&&path[0]==='bootstrap'){
+  await ensureReviewedAthleteImport();
   await ensureMonthlyCharges();
   const result=await database.prepare('SELECT * FROM athletes ORDER BY name').all();const extraCategories=[...new Set(result.results.map((a:any)=>a.category).filter((x:any)=>x&&!CLUB.categories.includes(x)))];const categories=m.role===ADMIN?[...CLUB.categories,...extraCategories]:coachCategories(m.coach_id);const staff=m.role===ADMIN?(await database.prepare('SELECT id,name,title,role,coach_id,email,username,active,owner,(password_hash IS NOT NULL) AS has_password FROM staff ORDER BY owner DESC,role,name').all()).results:[];
   const permitted=(m.role===ADMIN?result.results:result.results.filter((a:any)=>categories.includes(a.category))).map(a=>publicAthlete(a,m));

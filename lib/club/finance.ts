@@ -43,6 +43,31 @@ export async function financeHandle(method:string,path:string[],body:any,m:any){
   const ps=(await database.prepare('SELECT payments.*,staff.name AS recorder FROM payments LEFT JOIN staff ON staff.id=payments.created_by ORDER BY payments.id DESC LIMIT 300').all()).results;
   return {cutoff:CUTOFF,today:financeDate(),charges:cs,payments:ps,billing:(await database.prepare('SELECT * FROM billing').all()).results,exceptions:(await database.prepare('SELECT exceptions.*,staff.name AS author FROM exceptions LEFT JOIN staff ON staff.id=exceptions.created_by ORDER BY exceptions.created_at DESC').all()).results};
  }
+ if(method==='POST'&&path[0]==='reports'&&path[1]==='income'){
+  const start=date(body.startDate),end=date(body.endDate);if(end<start)fail(400,'La fecha final debe ser igual o posterior a la inicial.');
+  const payments:any[]=(await database.prepare(`SELECT p.id,p.athlete_id,p.athlete_name,p.amount,p.method,p.payer,p.reference,p.paid_date,p.created_at,a.category,
+    GROUP_CONCAT(c.kind||' '||c.period, ', ') AS concepts
+    FROM payments p
+    LEFT JOIN athletes a ON a.id=p.athlete_id
+    LEFT JOIN allocations al ON al.payment_id=p.id
+    LEFT JOIN charges c ON c.id=al.charge_id
+    WHERE p.status='confirmed' AND p.paid_date BETWEEN ? AND ?
+    GROUP BY p.id
+    ORDER BY p.paid_date DESC,p.id DESC`).bind(start,end).all()).results;
+  const concepts:any[]=(await database.prepare(`SELECT c.kind,SUM(al.amount) AS total
+    FROM allocations al JOIN payments p ON p.id=al.payment_id JOIN charges c ON c.id=al.charge_id
+    WHERE p.status='confirmed' AND p.paid_date BETWEEN ? AND ?
+    GROUP BY c.kind ORDER BY total DESC`).bind(start,end).all()).results;
+  const methods:any[]=(await database.prepare(`SELECT method,SUM(amount) AS total,COUNT(*) AS count
+    FROM payments WHERE status='confirmed' AND paid_date BETWEEN ? AND ?
+    GROUP BY method ORDER BY total DESC`).bind(start,end).all()).results;
+  const categories:any[]=(await database.prepare(`SELECT COALESCE(a.category,'Sin categoría') AS category,SUM(p.amount) AS total,COUNT(*) AS count
+    FROM payments p LEFT JOIN athletes a ON a.id=p.athlete_id
+    WHERE p.status='confirmed' AND p.paid_date BETWEEN ? AND ?
+    GROUP BY COALESCE(a.category,'Sin categoría') ORDER BY total DESC`).bind(start,end).all()).results;
+  const total=payments.reduce((sum:number,p:any)=>sum+Number(p.amount||0),0);
+  return {startDate:start,endDate:end,total,count:payments.length,payments,concepts,methods,categories};
+ }
  if(method==='POST'&&path[0]==='activate'){
   const a=await athlete(body.athleteId);if(a.status!=='active')fail(400,'Completa la ficha del deportista antes de activar su cuenta.');const start=month(body.startMonth);if(start<CUTOFF||start>financeDate().slice(0,7)&&start!==CUTOFF)fail(400,'El inicio debe ser octubre de 2026 o un mes posterior ya iniciado.');
   if(body.verified!==true)fail(400,'Confirma el mes de inicio y la revisión de saldos.');

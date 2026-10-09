@@ -1,5 +1,6 @@
 'use strict';
-let accountingReport=null,accountingStart=today().slice(0,7)+'-01',accountingEnd=today();
+const accountingToday=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Bogota',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+let accountingReport=null,accountingStart=accountingToday().slice(0,7)+'-01',accountingEnd=accountingToday();
 function accountingPage(){setTimeout(loadAccountingReport,0);return title('CONTABILIDAD','Ingresos del club.','Consulta los pagos confirmados por periodo y revisa su distribución.')+`
 <section class="card">
  <div class="form-grid">

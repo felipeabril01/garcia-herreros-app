@@ -1,7 +1,7 @@
 'use strict';
 const accountingToday=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Bogota',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 let accountingReport=null,accountingStart=accountingToday().slice(0,7)+'-01',accountingEnd=accountingToday();
-function accountingPage(){setTimeout(loadAccountingReport,0);return title('CONTABILIDAD','Ingresos del club.','Consulta los pagos confirmados por periodo y revisa su distribución.')+`
+function accountingPage(){setTimeout(()=>{loadAccountingReport();loadCoachPayments()},0);return title('CONTABILIDAD','Ingresos y pagos del club.','Consulta los ingresos registrados y gestiona los pagos a entrenadores.')+`
 <section class="card">
  <div class="form-grid">
   ${field('Desde','accountingStart',accountingStart,'date')}
@@ -9,7 +9,7 @@ function accountingPage(){setTimeout(loadAccountingReport,0);return title('CONTA
  </div>
  <div class="form-actions"><button type="button" class="btn primary" onclick="loadAccountingReport(true)">Generar reporte</button></div>
 </section>
-<div id="accounting-content" aria-live="polite">Cargando ingresos…</div>`}
+<div id="accounting-content" aria-live="polite">Cargando ingresos…</div><div id="coach-payments-content" aria-live="polite" style="margin-top:22px">Cargando pagos a entrenadores…</div>`}
 async function loadAccountingReport(fromForm=false){
  const el=document.querySelector('#accounting-content');if(!el)return;
  if(fromForm){accountingStart=document.querySelector('[name=accountingStart]')?.value||accountingStart;accountingEnd=document.querySelector('[name=accountingEnd]')?.value||accountingEnd;}
@@ -66,4 +66,66 @@ function printAccountingIncomeReport(){
  if(!w)return toast('El navegador bloqueó la ventana del reporte. Permite ventanas emergentes e inténtalo de nuevo.');
  try{w.opener=null}catch{}
  w.document.open();w.document.write(html);w.document.close();
+}
+
+
+let coachPayments=[];
+async function loadCoachPayments(){
+ const el=document.querySelector('#coach-payments-content');if(!el)return;
+ try{const r=await api('payroll');coachPayments=r.payments||[];paintCoachPayments()}catch(e){el.innerHTML=errorBox(e.message)}
+}
+function coachPaymentStatus(p){return p.status==='confirmed'?'<span class="badge ok">Recibido confirmado</span>':'<span class="badge warn">Pendiente de confirmación</span>'}
+function paintCoachPayments(){
+ const el=document.querySelector('#coach-payments-content');if(!el)return;
+ const pending=coachPayments.filter(p=>p.status==='pending_confirmation').length;
+ const total=coachPayments.reduce((s,p)=>s+Number(p.amount||0),0);
+ el.innerHTML=`
+ <section class="card">
+  <div class="card-head"><div><h2>Pagos a entrenadores</h2><p>Registra el pago y el entrenador confirma posteriormente desde su cuenta.</p></div><button class="btn primary" onclick="coachPaymentForm()">Registrar pago</button></div>
+  <div class="stats">
+   ${stat('Pagos registrados',coachPayments.length,'Historial disponible','wallet')}
+   ${stat('Pendientes de confirmar',pending,'Requieren confirmación del entrenador','clock')}
+   ${stat('Total registrado',money(total),'Pagos a entrenadores','check')}
+  </div>
+  <div class="table-wrap"><table class="roster-table"><thead><tr><th>Fecha</th><th>Entrenador</th><th>Periodo</th><th>Concepto</th><th>Medio</th><th>Valor</th><th>Estado</th></tr></thead><tbody>
+   ${coachPayments.map(p=>`<tr><td>${dateText(p.paid_date)}</td><td><strong>${esc(p.coach_name)}</strong></td><td>${esc(p.period)}</td><td>${esc(p.concept)}${p.notes?'<br><span class="muted">'+esc(p.notes)+'</span>':''}</td><td>${esc(p.method)}${p.reference?'<br><span class="muted">Ref. '+esc(p.reference)+'</span>':''}</td><td><strong>${money(p.amount)}</strong></td><td>${coachPaymentStatus(p)}${p.confirmed_at?'<br><span class="muted">'+new Date(p.confirmed_at).toLocaleString('es-CO',{timeZone:'America/Bogota'})+'</span>':''}</td></tr>`).join('')||'<tr><td colspan="7"><div class="empty">Aún no hay pagos registrados a entrenadores.</div></td></tr>'}
+  </tbody></table></div>
+ </section>`;
+}
+function coachPaymentForm(){
+ const coaches=(state.staff||[]).filter(s=>s.active&&s.coach_id);
+ if(!coaches.length)return toast('No hay entrenadores activos configurados.');
+ const token=crypto.randomUUID();
+ const period=accountingToday().slice(0,7);
+ showModal('Registrar pago a entrenador',`
+  <p class="sub" style="margin-bottom:18px">El pago quedará pendiente hasta que el entrenador confirme que lo recibió desde su cuenta.</p>
+  <form id="coach-payment-form"><div class="form-grid">
+   <label class="field full">Entrenador<select name="coachId">${coaches.map(s=>'<option value="'+esc(s.id)+'">'+esc(s.name)+' · '+esc(s.title)+'</option>').join('')}</select></label>
+   <label class="field">Periodo<input name="period" type="month" value="${period}" required></label>
+   ${field('Valor','amount','','number',true,false,12)}
+   ${field('Concepto','concept','Pago de entrenamiento','text',true,true,120)}
+   <label class="field">Medio de pago<select name="method"><option>Efectivo</option><option>Transferencia</option></select></label>
+   ${field('Referencia (si es transferencia)','reference','','text',false,false,150)}
+   ${field('Fecha del pago','paidDate',accountingToday(),'date')}
+   <label class="field full">Observación (opcional)<textarea name="notes" rows="3" maxlength="600"></textarea></label>
+   <label class="field full consent-check"><input type="checkbox" name="confirmed" required>Confirmo que este pago ya fue realizado al entrenador.</label>
+  </div><div id="coach-payment-error"></div><div class="form-actions"><button type="button" class="btn" onclick="modal.close()">Cancelar</button><button class="btn primary" type="submit">Registrar pago</button></div></form>`);
+ document.querySelector('#coach-payment-form').onsubmit=async e=>{
+  e.preventDefault();const form=e.target,btn=form.querySelector('[type=submit]');btn.disabled=true;
+  const d=Object.fromEntries(new FormData(form));d.amount=Number(d.amount);d.confirmed=d.confirmed==='on';d.requestId=token;
+  try{await api('payroll','POST',d);modal.close();await loadCoachPayments();toast('Pago registrado. Queda pendiente la confirmación del entrenador.')}
+  catch(err){document.querySelector('#coach-payment-error').innerHTML=errorBox(err.message);btn.disabled=false}
+ };
+}
+async function loadMyCoachPayments(){
+ const el=document.querySelector('#my-coach-payments');if(!el)return;
+ try{
+  const r=await api('payroll');const mine=(r.payments||[]).filter(p=>p.coach_id===state.member.id);
+  el.innerHTML=`<section class="card"><div class="card-head"><div><h2>Mis pagos del club</h2><p>Confirma únicamente cuando hayas recibido el dinero.</p></div></div>${mine.length?'<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Periodo</th><th>Concepto</th><th>Valor</th><th>Estado</th><th></th></tr></thead><tbody>'+mine.map(p=>'<tr><td>'+dateText(p.paid_date)+'</td><td>'+esc(p.period)+'</td><td>'+esc(p.concept)+'</td><td><strong>'+money(p.amount)+'</strong></td><td>'+coachPaymentStatus(p)+'</td><td>'+(p.status==='pending_confirmation'?'<button class="btn primary" onclick="confirmCoachPayment('+p.id+')">Confirmar recibido</button>':'')+'</td></tr>').join('')+'</tbody></table></div>':'<div class="empty">No tienes pagos registrados todavía.</div>'}</section>`;
+ }catch(e){el.innerHTML=errorBox(e.message)}
+}
+async function confirmCoachPayment(id){
+ if(!confirm('Confirma solo si ya recibiste este pago. ¿Deseas dejar constancia de recibido?'))return;
+ try{await api('payroll/'+id+'/confirm','POST',{confirmed:true});await loadMyCoachPayments();toast('Pago confirmado como recibido.')}
+ catch(e){toast(e.message)}
 }

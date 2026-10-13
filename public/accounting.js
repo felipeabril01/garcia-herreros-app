@@ -62,7 +62,8 @@ function printAccountingIncomeReport(){
  '<div class="grid"><div class="box"><h2>Ingresos por concepto</h2><table class="tbl"><thead><tr><th>Concepto</th><th>Total</th></tr></thead><tbody>'+concepts+'</tbody></table></div><div class="box"><h2>Ingresos por categoría</h2><table class="tbl"><thead><tr><th>Categoría</th><th>Pagos</th><th>Total</th></tr></thead><tbody>'+categories+'</tbody></table></div></div>'+
  '<div class="detail"><h2>Detalle de movimientos</h2><table class="tbl"><thead><tr><th>Fecha</th><th>Deportista</th><th>Categoría</th><th>Concepto</th><th>Medio</th><th>Valor</th></tr></thead><tbody>'+details+'</tbody></table></div>'+
  '<div class="foot">García Herreros FC · Constancia interna de ingresos registrados en la aplicación.</div></div><script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script></body></html>';
- const w=window.open('','_blank','noopener,noreferrer');
+ const w=window.open('','_blank');
  if(!w)return toast('El navegador bloqueó la ventana del reporte. Permite ventanas emergentes e inténtalo de nuevo.');
+ try{w.opener=null}catch{}
  w.document.open();w.document.write(html);w.document.close();
 }

@@ -1,15 +1,35 @@
 'use strict';
 const accountingToday=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Bogota',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-let accountingReport=null,accountingStart=accountingToday().slice(0,7)+'-01',accountingEnd=accountingToday();
-function accountingPage(){setTimeout(()=>{loadAccountingReport();loadCoachPayments()},0);return title('CONTABILIDAD','Ingresos y pagos del club.','Consulta los ingresos registrados y gestiona los pagos a entrenadores.')+`
-<section class="card">
- <div class="form-grid">
-  ${field('Desde','accountingStart',accountingStart,'date')}
-  ${field('Hasta','accountingEnd',accountingEnd,'date')}
+let accountingReport=null,accountingStart=accountingToday().slice(0,7)+'-01',accountingEnd=accountingToday(),accountingSection='income';
+function accountingPage(){setTimeout(()=>{renderAccountingSection()},0);return title('CONTABILIDAD','Control financiero del club.','Consulta los ingresos y gestiona los pagos a entrenadores desde apartados separados.')+`
+<div class="card" style="padding:10px 12px;margin-bottom:16px">
+ <div class="form-actions" style="justify-content:flex-start;margin:0;gap:8px">
+  <button type="button" class="btn ${accountingSection==='income'?'primary':''}" onclick="switchAccountingSection('income')">Ingresos</button>
+  <button type="button" class="btn ${accountingSection==='coach'?'primary':''}" onclick="switchAccountingSection('coach')">Pagos a entrenadores</button>
  </div>
- <div class="form-actions"><button type="button" class="btn primary" onclick="loadAccountingReport(true)">Generar reporte</button></div>
-</section>
-<div id="accounting-content" aria-live="polite">Cargando ingresos…</div><div id="coach-payments-content" aria-live="polite" style="margin-top:22px">Cargando pagos a entrenadores…</div>`}
+</div>
+<div id="accounting-section"></div>`}
+
+function switchAccountingSection(section){
+ accountingSection=section;
+ renderAccountingSection();
+}
+function renderAccountingSection(){
+ const el=document.querySelector('#accounting-section');if(!el)return;
+ if(accountingSection==='coach'){
+  el.innerHTML='<div id="coach-payments-content">Cargando pagos a entrenadores…</div>';
+  loadCoachPayments();return;
+ }
+ el.innerHTML=`<section class="card" style="padding:18px">
+  <div class="card-head" style="margin-bottom:12px"><div><h2>Reporte de ingresos</h2><p>Selecciona el periodo a consultar.</p></div><button type="button" class="btn primary" onclick="loadAccountingReport(true)">Generar reporte</button></div>
+  <div class="form-grid" style="margin-bottom:0">
+   ${field('Desde','accountingStart',accountingStart,'date')}
+   ${field('Hasta','accountingEnd',accountingEnd,'date')}
+  </div>
+ </section>
+ <div id="accounting-content" aria-live="polite">Cargando ingresos…</div>`;
+ loadAccountingReport();
+}
 async function loadAccountingReport(fromForm=false){
  const el=document.querySelector('#accounting-content');if(!el)return;
  if(fromForm){accountingStart=document.querySelector('[name=accountingStart]')?.value||accountingStart;accountingEnd=document.querySelector('[name=accountingEnd]')?.value||accountingEnd;}
@@ -21,9 +41,7 @@ function paintAccountingReport(){
  const el=document.querySelector('#accounting-content'),r=accountingReport;if(!el||!r)return;
  const cash=r.methods.find(x=>x.method==='Efectivo')?.total||0,transfer=r.methods.find(x=>x.method==='Transferencia')?.total||0;
  el.innerHTML=`
- <div class="form-actions" style="justify-content:flex-end;margin-bottom:14px">
-  <button type="button" class="btn primary" onclick="printAccountingIncomeReport()">Generar PDF / Imprimir</button>
- </div>
+ <div class="card-head" style="margin-bottom:14px"><div><h2>Resumen del periodo</h2><p>${dateText(r.startDate)} al ${dateText(r.endDate)}</p></div><button type="button" class="btn" onclick="printAccountingIncomeReport()">Generar PDF / Imprimir</button></div>
  <div class="stats">
   ${stat('Ingresos del periodo',money(r.total),r.count+' pagos confirmados','wallet')}
   ${stat('Efectivo',money(cash),'Recibido en efectivo','wallet')}
@@ -81,7 +99,7 @@ function paintCoachPayments(){
  const total=coachPayments.reduce((s,p)=>s+Number(p.amount||0),0);
  el.innerHTML=`
  <section class="card">
-  <div class="card-head"><div><h2>Pagos a entrenadores</h2><p>Registra el pago y el entrenador confirma posteriormente desde su cuenta.</p></div><button class="btn primary" onclick="coachPaymentForm()">Registrar pago</button></div>
+  <div class="card-head"><div><h2>Pagos a entrenadores</h2><p>Registra los pagos y consulta su estado de confirmación.</p></div><button class="btn primary" onclick="coachPaymentForm()">Registrar pago</button></div>
   <div class="stats">
    ${stat('Pagos registrados',coachPayments.length,'Historial disponible','wallet')}
    ${stat('Pendientes de confirmar',pending,'Requieren confirmación del entrenador','clock')}

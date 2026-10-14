@@ -8,6 +8,7 @@ import { ensureReviewedAthleteImport20261009 } from './reviewed-import-20261009'
 import { ensureReviewedAthleteImport20261013 } from './reviewed-import-20261013';
 import { payrollHandle, ensureCoachPaymentsTable } from './payroll';
 import { inventoryHandle, ensureUniformInventoryTables } from './inventory';
+import { expensesHandle, ensureExpenseTables } from './expenses';
 export { HttpError } from './errors';
 export type Identity={userId?:string,email?:string,staffId?:string};
 const fail=(status:number,msg:string):never=>{throw new HttpError(status,msg)};
@@ -49,12 +50,14 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
  if(path[0]==='finance')return financeHandle(method,path.slice(1),body,m);
  if(path[0]==='payroll')return payrollHandle(method,path.slice(1),body,m);
  if(path[0]==='inventory')return inventoryHandle(method,path.slice(1),body,m);
+ if(path[0]==='expenses')return expensesHandle(method,path.slice(1),body,m);
  if(method==='GET'&&path[0]==='bootstrap'){
   await ensureReviewedAthleteImport();
   await ensureReviewedAthleteImport20261009();
   await ensureReviewedAthleteImport20261013();
   await ensureCoachPaymentsTable();
   await ensureUniformInventoryTables();
+  await ensureExpenseTables();
   await database.prepare("UPDATE athletes SET modality='Mensual',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),version=version+1 WHERE modality IS NULL OR trim(modality)<>'Mensual'").run();
   await ensureMonthlyCharges();
   const result=await database.prepare('SELECT * FROM athletes ORDER BY name').all();const extraCategories=[...new Set(result.results.map((a:any)=>a.category).filter((x:any)=>x&&!CLUB.categories.includes(x)))];const categories=m.role===ADMIN?[...CLUB.categories,...extraCategories]:coachCategories(m.coach_id);const staff=m.role===ADMIN?(await database.prepare('SELECT id,name,title,role,coach_id,email,username,active,owner,(password_hash IS NOT NULL) AS has_password FROM staff ORDER BY owner DESC,role,name').all()).results:[];

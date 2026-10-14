@@ -269,7 +269,8 @@ function uniformSaleForm(){
   <p class="sub" style="margin-bottom:18px">La venta descontará automáticamente el inventario y se sumará a los ingresos del club.</p>
   <form id="uniform-sale-form"><div class="form-grid">
    <label class="field full">Uniforme<select name="itemId" onchange="syncUniformSalePrice(this.value)">${items.map(i=>'<option value="'+esc(i.id)+'" data-price="'+Number(i.sale_price||0)+'">'+esc(i.name)+' · Talla '+esc(i.size)+' · '+i.stock+' disponibles</option>').join('')}</select></label>
-   <label class="field full">Deportista<select name="athleteId">${athletes.map(a=>'<option value="'+esc(a.id)+'">'+esc(a.name)+' · '+esc(a.category)+'</option>').join('')}</select></label>
+   <label class="field full">Buscar deportista<input id="uniform-athlete-search" type="search" placeholder="Escribe nombre o categoría" autocomplete="off" oninput="filterUniformAthletes(this.value)"></label>
+   <label class="field full">Deportista<select name="athleteId" id="uniform-athlete-select">${athletes.map(a=>'<option value="'+esc(a.id)+'" data-search="'+esc((a.name+' '+a.category).toLowerCase())+'">'+esc(a.name)+' · '+esc(a.category)+'</option>').join('')}</select></label>
    ${field('Cantidad','quantity','1','number',true,false,4)}
    ${field('Precio unitario','unitPrice',items[0]?.sale_price||'','number',true,false,12)}
    <label class="field">Medio de pago<select name="method"><option>Efectivo</option><option>Transferencia</option></select></label>
@@ -288,4 +289,16 @@ function uniformSaleForm(){
 function syncUniformSalePrice(itemId){
  const item=(uniformInventory.items||[]).find(i=>i.id===itemId),input=document.querySelector('#uniform-sale-form [name=unitPrice]');
  if(item&&input)input.value=Number(item.sale_price||0);
+}
+
+function filterUniformAthletes(query){
+ const select=document.querySelector('#uniform-athlete-select');if(!select)return;
+ const q=String(query||'').trim().toLowerCase();
+ let firstVisible=null;
+ [...select.options].forEach(o=>{
+  const show=!q||(o.dataset.search||'').includes(q);
+  o.hidden=!show;
+  if(show&&!firstVisible)firstVisible=o;
+ });
+ if(firstVisible)select.value=firstVisible.value;
 }

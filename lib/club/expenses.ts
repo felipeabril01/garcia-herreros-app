@@ -75,6 +75,24 @@ export async function expensesHandle(method:string,path:string[],body:any,m:any)
   return {id,...await snapshot()};
  }
 
+ if(method==='POST'&&path[0]==='expenses'&&path[1]&&path[2]==='pay'){
+  const id=Number(path[1]);if(!Number.isSafeInteger(id)||id<=0)fail(400,'Gasto inválido');
+  const exp:any=await database.prepare('SELECT * FROM expenses WHERE id=?').bind(id).first();
+  if(!exp)fail(404,'Gasto no encontrado');
+  if(exp.status==='paid')return {id,status:'paid',...await snapshot()};
+  const methodValue=str(body.method,'medio de pago',30);
+  if(!['Efectivo','Transferencia'].includes(methodValue))fail(400,'Medio de pago inválido');
+  const reference=str(body.reference,'referencia',150,false);
+  if(methodValue==='Transferencia'&&!reference)fail(400,'Registra la referencia de la transferencia.');
+  const paidDate=date(body.paidDate,'fecha de pago');
+  const when=now();
+  await database.batch([
+   database.prepare("UPDATE expenses SET status='paid',expense_date=?,method=?,reference=?,due_date=NULL WHERE id=?").bind(paidDate,methodValue,reference,id),
+   database.prepare("INSERT INTO audit(id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(),m.id,'expense_paid',String(id),when)
+  ]);
+  return {id,status:'paid',...await snapshot()};
+ }
+
  if(method==='POST'&&path[0]==='expenses'){
   const requestId=str(body.requestId,'identificador',36);
   if(!/^[0-9a-f-]{36}$/.test(requestId))fail(400,'Identificador inválido');
@@ -112,23 +130,7 @@ export async function expensesHandle(method:string,path:string[],body:any,m:any)
   return {id:Number(id),...await snapshot()};
  }
 
- if(method==='POST'&&path[0]==='expenses'&&path[1]&&path[2]==='pay'){
-  const id=Number(path[1]);if(!Number.isSafeInteger(id)||id<=0)fail(400,'Gasto inválido');
-  const exp:any=await database.prepare('SELECT * FROM expenses WHERE id=?').bind(id).first();
-  if(!exp)fail(404,'Gasto no encontrado');
-  if(exp.status==='paid')return {id,status:'paid',...await snapshot()};
-  const methodValue=str(body.method,'medio de pago',30);
-  if(!['Efectivo','Transferencia'].includes(methodValue))fail(400,'Medio de pago inválido');
-  const reference=str(body.reference,'referencia',150,false);
-  if(methodValue==='Transferencia'&&!reference)fail(400,'Registra la referencia de la transferencia.');
-  const paidDate=date(body.paidDate,'fecha de pago');
-  const when=now();
-  await database.batch([
-   database.prepare("UPDATE expenses SET status='paid',expense_date=?,method=?,reference=?,due_date=NULL WHERE id=?").bind(paidDate,methodValue,reference,id),
-   database.prepare("INSERT INTO audit(id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(),m.id,'expense_paid',String(id),when)
-  ]);
-  return {id,status:'paid',...await snapshot()};
- }
+
 
  fail(404,'Ruta de gastos no encontrada');
 }

@@ -37,6 +37,14 @@ export async function ensureUniformInventoryTables(){
   created_at TEXT NOT NULL
  )`).run();
  await database.prepare('CREATE INDEX IF NOT EXISTS uniform_movements_item_idx ON uniform_movements(item_id,movement_date)').run();
+ const alters=[
+  "ALTER TABLE uniform_movements ADD COLUMN athlete_id TEXT",
+  "ALTER TABLE uniform_movements ADD COLUMN athlete_name TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE uniform_movements ADD COLUMN unit_price INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE uniform_movements ADD COLUMN method TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE uniform_movements ADD COLUMN reference TEXT NOT NULL DEFAULT ''"
+ ];
+ for(const sql of alters){try{await database.prepare(sql).run()}catch{}}
 }
 
 async function snapshot(){
@@ -60,6 +68,32 @@ export async function inventoryHandle(method:string,path:string[],body:any,m:any
  const database=db();
 
  if(method==='GET'&&path.length===0)return snapshot();
+
+ if(method==='POST'&&path[0]==='sales'){
+  const requestId=str(body.requestId,'identificador',36);
+  if(!/^[0-9a-f-]{36}$/.test(requestId))fail(400,'Identificador inválido');
+  const itemId=str(body.itemId,'uniforme',100);
+  const quantity=positiveInt(body.quantity,'cantidad',1000);
+  const athleteId=str(body.athleteId,'deportista',100);
+  const athlete:any=await database.prepare("SELECT id,name FROM athletes WHERE id=? AND status='active'").bind(athleteId).first();
+  if(!athlete)fail(400,'Selecciona un deportista activo.');
+  const item:any=await database.prepare("SELECT * FROM uniform_items WHERE id=? AND active=1").bind(itemId).first();
+  if(!item)fail(404,'Uniforme no encontrado.');
+  const stockRow:any=await database.prepare("SELECT COALESCE(SUM(CASE WHEN kind='entry' THEN quantity WHEN kind='sale' THEN -quantity ELSE 0 END),0) AS stock FROM uniform_movements WHERE item_id=?").bind(itemId).first();
+  const stock=Number(stockRow?.stock||0);if(quantity>stock)fail(409,'No hay suficientes unidades disponibles para registrar esta venta.');
+  const unitPrice=body.unitPrice===undefined||body.unitPrice===null||body.unitPrice===''?Number(item.sale_price||0):money(body.unitPrice,'precio de venta');
+  if(unitPrice<=0)fail(400,'Registra un precio de venta válido.');
+  const methodValue=str(body.method,'medio de pago',30);if(!['Efectivo','Transferencia'].includes(methodValue))fail(400,'Medio de pago inválido');
+  const reference=optional(body.reference,150);if(methodValue==='Transferencia'&&!reference)fail(400,'Registra la referencia de la transferencia.');
+  const movementDate=date(body.movementDate),notes=optional(body.notes,600);
+  const prior:any=await database.prepare('SELECT id FROM uniform_movements WHERE request_id=?').bind(requestId).first();
+  if(prior)return {id:prior.id,...await snapshot()};
+  const when=now();
+  const res:any=await database.prepare(`INSERT INTO uniform_movements(request_id,item_id,kind,quantity,unit_cost,supplier,movement_date,notes,created_by,created_at,athlete_id,athlete_name,unit_price,method,reference)
+   VALUES (?,?,'sale',?,0,'',?,?,?,?,?,?,?,?,?)`).bind(requestId,itemId,quantity,movementDate,notes,m.id,when,athlete.id,athlete.name,unitPrice,methodValue,reference).run();
+  await database.prepare("INSERT INTO audit(id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(),m.id,'uniform_sale_registered',String(res.meta?.last_row_id||itemId),when).run();
+  return {id:Number(res.meta?.last_row_id||0),total:quantity*unitPrice,...await snapshot()};
+ }
 
  if(method==='POST'&&path[0]==='entries'){
   const requestId=str(body.requestId,'identificador',36);

@@ -41,7 +41,7 @@ async function loadAccountingReport(fromForm=false){
  el.innerHTML='<p>Cargando reporte…</p>';
  try{accountingReport=await api('finance/reports/income','POST',{startDate:accountingStart,endDate:accountingEnd});paintAccountingReport()}catch(e){el.innerHTML=errorBox(e.message)}
 }
-function accountingKindLabel(k){return {mensualidad:'Mensualidades',inscripcion:'Inscripciones',practica:'Prácticas'}[k]||k}
+function accountingKindLabel(k){return {mensualidad:'Mensualidades',inscripcion:'Inscripciones',practica:'Prácticas',uniforme:'Uniformes'}[k]||k}
 function paintAccountingReport(){
  const el=document.querySelector('#accounting-content'),r=accountingReport;if(!el||!r)return;
  const cash=r.methods.find(x=>x.method==='Efectivo')?.total||0,transfer=r.methods.find(x=>x.method==='Transferencia')?.total||0;
@@ -62,7 +62,7 @@ function paintAccountingReport(){
  </div>
  <section class="card"><div class="card-head"><div><h2>Detalle de ingresos</h2><p>${dateText(r.startDate)} al ${dateText(r.endDate)}</p></div><span class="badge ok">${r.count} movimientos</span></div>
   <div class="table-wrap"><table class="roster-table"><thead><tr><th>Fecha</th><th>Deportista</th><th>Concepto</th><th>Medio</th><th>Valor</th><th>Comprobante</th></tr></thead><tbody>
-  ${r.payments.map(p=>`<tr><td>${dateText(p.paid_date)}</td><td><strong>${esc(p.athlete_name)}</strong><br><span class="muted">${esc(p.category||'')}</span></td><td>${esc(p.concepts||'Pago')}</td><td>${esc(p.method)}</td><td><strong>${money(p.amount)}</strong></td><td><button class="btn link" onclick="receiptView(${p.id})">Ver ${p.id}</button></td></tr>`).join('')}
+  ${r.payments.map(p=>`<tr><td>${dateText(p.paid_date)}</td><td><strong>${esc(p.athlete_name)}</strong><br><span class="muted">${esc(p.category||'')}</span></td><td>${esc(p.concepts||'Pago')}</td><td>${esc(p.method)}</td><td><strong>${money(p.amount)}</strong></td><td>${p.source==='uniform'?'<span class="muted">Venta de uniforme</span>':'<button class="btn link" onclick="receiptView('+p.id+')">Ver '+p.id+'</button>'}</td></tr>`).join('')}
   </tbody></table></div>
   ${!r.payments.length?'<div class="empty">No hay pagos confirmados para estas fechas.</div>':''}
  </section>`;
@@ -210,7 +210,7 @@ function paintUniformInventory(){
  const saleValue=items.reduce((s,i)=>s+(Number(i.stock||0)*Number(i.sale_price||0)),0);
  el.innerHTML=`
  <section class="card">
-  <div class="card-head"><div><h2>Uniformes e inventario</h2><p>Controla las existencias por prenda y talla. En esta primera etapa registraremos las entradas de stock.</p></div><button class="btn primary" onclick="uniformEntryForm()">Registrar entrada</button></div>
+  <div class="card-head"><div><h2>Uniformes e inventario</h2><p>Controla entradas, existencias y ventas por prenda y talla.</p></div><div class="actions"><button class="btn" onclick="uniformSaleForm()">Registrar venta</button><button class="btn primary" onclick="uniformEntryForm()">Registrar entrada</button></div></div>
   <div class="stats">
    ${stat('Unidades disponibles',units,'Stock actual','check')}
    ${stat('Costo estimado del stock',money(stockValue),'Según último costo registrado','wallet')}
@@ -220,12 +220,20 @@ function paintUniformInventory(){
    ${items.map(i=>`<tr><td><strong>${esc(i.name)}</strong></td><td>${esc(i.size)}</td><td><span class="badge ${Number(i.stock)>0?'ok':'warn'}">${i.stock}</span></td><td>${money(i.last_unit_cost||0)}</td><td><strong>${money(i.sale_price||0)}</strong></td><td>${money(Number(i.stock||0)*Number(i.last_unit_cost||0))}</td></tr>`).join('')||'<tr><td colspan="6"><div class="empty">Aún no hay uniformes registrados.</div></td></tr>'}
   </tbody></table></div>
  </section>
- <section class="card">
-  <div class="card-head"><div><h2>Últimas entradas</h2><p>Historial de uniformes recibidos por el club.</p></div></div>
-  <div class="table-wrap"><table class="roster-table"><thead><tr><th>Fecha</th><th>Prenda</th><th>Talla</th><th>Cantidad</th><th>Costo unitario</th><th>Proveedor</th><th>Registró</th></tr></thead><tbody>
-   ${moves.filter(m=>m.kind==='entry').map(m=>`<tr><td>${dateText(m.movement_date)}</td><td><strong>${esc(m.name)}</strong></td><td>${esc(m.size)}</td><td>${m.quantity}</td><td>${money(m.unit_cost)}</td><td>${esc(m.supplier||'No registrado')}</td><td>${esc(m.recorder||'Administración')}</td></tr>`).join('')||'<tr><td colspan="7"><div class="empty">Aún no hay entradas registradas.</div></td></tr>'}
-  </tbody></table></div>
- </section>`;
+ <div class="dashboard-grid">
+  <section class="card">
+   <div class="card-head"><div><h2>Últimas entradas</h2><p>Uniformes recibidos por el club.</p></div></div>
+   <div class="table-wrap"><table class="roster-table"><thead><tr><th>Fecha</th><th>Prenda</th><th>Talla</th><th>Cant.</th><th>Costo</th><th>Proveedor</th></tr></thead><tbody>
+    ${moves.filter(m=>m.kind==='entry').map(m=>`<tr><td>${dateText(m.movement_date)}</td><td><strong>${esc(m.name)}</strong></td><td>${esc(m.size)}</td><td>${m.quantity}</td><td>${money(m.unit_cost)}</td><td>${esc(m.supplier||'No registrado')}</td></tr>`).join('')||'<tr><td colspan="6"><div class="empty">Aún no hay entradas registradas.</div></td></tr>'}
+   </tbody></table></div>
+  </section>
+  <section class="card">
+   <div class="card-head"><div><h2>Últimas ventas</h2><p>Ventas que ya descontaron inventario.</p></div></div>
+   <div class="table-wrap"><table class="roster-table"><thead><tr><th>Fecha</th><th>Uniforme</th><th>Deportista</th><th>Cant.</th><th>Total</th><th>Medio</th></tr></thead><tbody>
+    ${moves.filter(m=>m.kind==='sale').map(m=>`<tr><td>${dateText(m.movement_date)}</td><td><strong>${esc(m.name)}</strong><br><span class="muted">Talla ${esc(m.size)}</span></td><td>${esc(m.athlete_name||'')}</td><td>${m.quantity}</td><td><strong>${money(Number(m.quantity)*Number(m.unit_price||0))}</strong></td><td>${esc(m.method||'')}${m.reference?'<br><span class="muted">Ref. '+esc(m.reference)+'</span>':''}</td></tr>`).join('')||'<tr><td colspan="6"><div class="empty">Aún no hay ventas registradas.</div></td></tr>'}
+   </tbody></table></div>
+  </section>
+ </div>`;
 }
 function uniformEntryForm(){
  const token=crypto.randomUUID();
@@ -249,4 +257,35 @@ function uniformEntryForm(){
   try{uniformInventory=await api('inventory/entries','POST',d);modal.close();paintUniformInventory();toast('Entrada de uniformes registrada.')}
   catch(err){document.querySelector('#uniform-entry-error').innerHTML=errorBox(err.message);btn.disabled=false}
  };
+}
+
+function uniformSaleForm(){
+ const items=(uniformInventory.items||[]).filter(i=>Number(i.stock)>0);
+ const athletes=(state.athletes||[]).filter(a=>a.status==='active').sort((a,b)=>a.name.localeCompare(b.name,'es'));
+ if(!items.length)return toast('No hay uniformes con existencias disponibles.');
+ if(!athletes.length)return toast('No hay deportistas activos para asociar la venta.');
+ const token=crypto.randomUUID();
+ showModal('Registrar venta de uniforme',`
+  <p class="sub" style="margin-bottom:18px">La venta descontará automáticamente el inventario y se sumará a los ingresos del club.</p>
+  <form id="uniform-sale-form"><div class="form-grid">
+   <label class="field full">Uniforme<select name="itemId" onchange="syncUniformSalePrice(this.value)">${items.map(i=>'<option value="'+esc(i.id)+'" data-price="'+Number(i.sale_price||0)+'">'+esc(i.name)+' · Talla '+esc(i.size)+' · '+i.stock+' disponibles</option>').join('')}</select></label>
+   <label class="field full">Deportista<select name="athleteId">${athletes.map(a=>'<option value="'+esc(a.id)+'">'+esc(a.name)+' · '+esc(a.category)+'</option>').join('')}</select></label>
+   ${field('Cantidad','quantity','1','number',true,false,4)}
+   ${field('Precio unitario','unitPrice',items[0]?.sale_price||'','number',true,false,12)}
+   <label class="field">Medio de pago<select name="method"><option>Efectivo</option><option>Transferencia</option></select></label>
+   ${field('Referencia (si es transferencia)','reference','','text',false,false,150)}
+   ${field('Fecha de venta','movementDate',accountingToday(),'date')}
+   <label class="field full">Observación (opcional)<textarea name="notes" rows="3" maxlength="600"></textarea></label>
+  </div>
+  <div id="uniform-sale-error"></div><div class="form-actions"><button type="button" class="btn" onclick="modal.close()">Cancelar</button><button class="btn primary" type="submit">Registrar venta</button></div></form>`);
+ document.querySelector('#uniform-sale-form').onsubmit=async e=>{
+  e.preventDefault();const form=e.target,btn=form.querySelector('[type=submit]');btn.disabled=true;
+  const d=Object.fromEntries(new FormData(form));d.quantity=Number(d.quantity);d.unitPrice=Number(d.unitPrice);d.requestId=token;
+  try{uniformInventory=await api('inventory/sales','POST',d);modal.close();paintUniformInventory();toast('Venta registrada y descontada del inventario.')}
+  catch(err){document.querySelector('#uniform-sale-error').innerHTML=errorBox(err.message);btn.disabled=false}
+ };
+}
+function syncUniformSalePrice(itemId){
+ const item=(uniformInventory.items||[]).find(i=>i.id===itemId),input=document.querySelector('#uniform-sale-form [name=unitPrice]');
+ if(item&&input)input.value=Number(item.sale_price||0);
 }

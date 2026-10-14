@@ -1,12 +1,13 @@
 'use strict';
 const accountingToday=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Bogota',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 let accountingReport=null,accountingStart=accountingToday().slice(0,7)+'-01',accountingEnd=accountingToday(),accountingSection='income';
-function accountingPage(){setTimeout(()=>{renderAccountingSection()},0);return title('CONTABILIDAD','Control financiero del club.','Consulta los ingresos, los pagos a entrenadores y el inventario de uniformes.')+`
+function accountingPage(){setTimeout(()=>{renderAccountingSection()},0);return title('CONTABILIDAD','Control financiero del club.','Consulta ingresos, pagos a entrenadores, uniformes, gastos y proveedores.')+`
 <div class="card" style="padding:10px 12px;margin-bottom:16px">
  <div class="form-actions" style="justify-content:flex-start;margin:0;gap:8px">
   <button type="button" class="btn ${accountingSection==='income'?'primary':''}" onclick="switchAccountingSection('income')">Ingresos</button>
   <button type="button" class="btn ${accountingSection==='coach'?'primary':''}" onclick="switchAccountingSection('coach')">Pagos a entrenadores</button>
   <button type="button" class="btn ${accountingSection==='uniforms'?'primary':''}" onclick="switchAccountingSection('uniforms')">Uniformes e inventario</button>
+  <button type="button" class="btn ${accountingSection==='expenses'?'primary':''}" onclick="switchAccountingSection('expenses')">Gastos y proveedores</button>
  </div>
 </div>
 <div id="accounting-section"></div>`}
@@ -24,6 +25,10 @@ function renderAccountingSection(){
  if(accountingSection==='uniforms'){
   el.innerHTML='<div id="uniform-inventory-content">Cargando inventario…</div>';
   loadUniformInventory();return;
+ }
+ if(accountingSection==='expenses'){
+  el.innerHTML='<div id="expenses-content">Cargando gastos…</div>';
+  loadExpenses();return;
  }
  el.innerHTML=`<section class="card" style="padding:18px">
   <div class="card-head" style="margin-bottom:12px"><div><h2>Reporte de ingresos</h2><p>Selecciona el periodo a consultar.</p></div><button type="button" class="btn primary" onclick="loadAccountingReport(true)">Generar reporte</button></div>
@@ -299,4 +304,108 @@ function filterUniformAthletes(query){
   if(show&&!firstVisible)firstVisible=o;
  });
  if(firstVisible)select.value=firstVisible.value;
+}
+
+
+let expenseData={suppliers:[],expenses:[]};
+async function loadExpenses(){
+ const el=document.querySelector('#expenses-content');if(!el)return;
+ try{expenseData=await api('expenses');paintExpenses()}catch(e){el.innerHTML=errorBox(e.message)}
+}
+function expenseStatus(e){
+ return e.status==='paid'?'<span class="badge ok">Pagado</span>':'<span class="badge warn">Pendiente</span>';
+}
+function paintExpenses(){
+ const el=document.querySelector('#expenses-content');if(!el)return;
+ const expenses=expenseData.expenses||[],suppliers=expenseData.suppliers||[];
+ const paid=expenses.filter(e=>e.status==='paid');
+ const pending=expenses.filter(e=>e.status==='pending');
+ const paidTotal=paid.reduce((s,e)=>s+Number(e.amount||0),0);
+ const pendingTotal=pending.reduce((s,e)=>s+Number(e.amount||0),0);
+ el.innerHTML=`
+ <section class="card">
+  <div class="card-head"><div><h2>Gastos y proveedores</h2><p>Registra egresos del club y controla las cuentas pendientes de pago.</p></div><div class="actions"><button class="btn" onclick="supplierForm()">Nuevo proveedor</button><button class="btn primary" onclick="expenseForm()">Registrar gasto</button></div></div>
+  <div class="stats">
+   ${stat('Gastos pagados',money(paidTotal),paid.length+' movimientos','wallet')}
+   ${stat('Cuentas pendientes',money(pendingTotal),pending.length+' por pagar','clock')}
+   ${stat('Proveedores',suppliers.length,'Activos registrados','check')}
+  </div>
+ </section>
+ <section class="card">
+  <div class="card-head"><div><h2>Movimientos de gastos</h2><p>Historial de egresos y obligaciones registradas.</p></div></div>
+  <div class="table-wrap"><table class="roster-table"><thead><tr><th>Fecha</th><th>Concepto</th><th>Categoría</th><th>Proveedor</th><th>Valor</th><th>Estado</th><th>Medio / Vence</th><th></th></tr></thead><tbody>
+   ${expenses.map(e=>`<tr><td>${dateText(e.expense_date)}</td><td><strong>${esc(e.concept)}</strong>${e.notes?'<br><span class="muted">'+esc(e.notes)+'</span>':''}</td><td>${esc(e.category)}</td><td>${esc(e.supplier_name||'Sin proveedor')}</td><td><strong>${money(e.amount)}</strong></td><td>${expenseStatus(e)}</td><td>${e.status==='paid'?esc(e.method||'')+(e.reference?'<br><span class="muted">Ref. '+esc(e.reference)+'</span>':''):(e.due_date?'Vence '+dateText(e.due_date):'Pendiente')}</td><td>${e.status==='pending'?'<button class="btn primary" onclick="payExpenseForm('+e.id+')">Registrar pago</button>':''}</td></tr>`).join('')||'<tr><td colspan="8"><div class="empty">Aún no hay gastos registrados.</div></td></tr>'}
+  </tbody></table></div>
+ </section>
+ <section class="card">
+  <div class="card-head"><div><h2>Proveedores</h2><p>Directorio básico para compras y servicios del club.</p></div><button class="btn" onclick="supplierForm()">Agregar proveedor</button></div>
+  <div class="table-wrap"><table><thead><tr><th>Proveedor</th><th>Documento</th><th>Teléfono</th><th>Correo</th><th>Observación</th></tr></thead><tbody>
+   ${suppliers.map(s=>`<tr><td><strong>${esc(s.name)}</strong></td><td>${esc(s.document||'—')}</td><td>${esc(s.phone||'—')}</td><td>${esc(s.email||'—')}</td><td>${esc(s.notes||'—')}</td></tr>`).join('')||'<tr><td colspan="5"><div class="empty">Aún no hay proveedores registrados.</div></td></tr>'}
+  </tbody></table></div>
+ </section>`;
+}
+function supplierForm(){
+ showModal('Nuevo proveedor',`
+  <form id="supplier-form"><div class="form-grid">
+   ${field('Nombre o razón social','name','','text',true,true,120)}
+   ${field('NIT / documento (opcional)','document','','text',false,false,50)}
+   ${field('Teléfono (opcional)','phone','','text',false,false,40)}
+   ${field('Correo (opcional)','email','','email',false,true,180)}
+   <label class="field full">Observación (opcional)<textarea name="notes" rows="3" maxlength="500"></textarea></label>
+  </div><div id="supplier-error"></div><div class="form-actions"><button type="button" class="btn" onclick="modal.close()">Cancelar</button><button class="btn primary" type="submit">Guardar proveedor</button></div></form>`);
+ document.querySelector('#supplier-form').onsubmit=async e=>{
+  e.preventDefault();const form=e.target,btn=form.querySelector('[type=submit]');btn.disabled=true;
+  const d=Object.fromEntries(new FormData(form));
+  try{expenseData=await api('expenses/suppliers','POST',d);modal.close();paintExpenses();toast('Proveedor registrado.')}
+  catch(err){document.querySelector('#supplier-error').innerHTML=errorBox(err.message);btn.disabled=false}
+ };
+}
+function expenseForm(){
+ const suppliers=expenseData.suppliers||[],token=crypto.randomUUID();
+ const categories=['Arriendo','Canchas','Arbitrajes','Transporte','Implementación deportiva','Uniformes / compras','Servicios','Publicidad','Administración','Otros'];
+ showModal('Registrar gasto',`
+  <p class="sub" style="margin-bottom:18px">Puedes registrar un gasto ya pagado o dejarlo como cuenta pendiente.</p>
+  <form id="expense-form"><div class="form-grid">
+   ${field('Concepto','concept','','text',true,true,180)}
+   <label class="field">Categoría<select name="category">${categories.map(x=>'<option>'+esc(x)+'</option>').join('')}</select></label>
+   ${field('Valor','amount','','number',true,false,12)}
+   <label class="field">Proveedor<select name="supplierId"><option value="">Sin proveedor</option>${suppliers.map(s=>'<option value="'+esc(s.id)+'">'+esc(s.name)+'</option>').join('')}</select></label>
+   ${field('Fecha del gasto','expenseDate',accountingToday(),'date')}
+   <label class="field">Estado<select name="status" onchange="toggleExpenseStatusFields(this.value)"><option value="paid">Pagado</option><option value="pending">Pendiente por pagar</option></select></label>
+   <div id="expense-paid-fields" class="full-width"><div class="form-grid">
+    <label class="field">Medio de pago<select name="method"><option>Efectivo</option><option>Transferencia</option></select></label>
+    ${field('Referencia (si es transferencia)','reference','','text',false,false,150)}
+   </div></div>
+   <div id="expense-pending-fields" class="full-width" style="display:none"><div class="form-grid">
+    ${field('Fecha de vencimiento','dueDate',accountingToday(),'date',false,false,10)}
+   </div></div>
+   <label class="field full">Observación (opcional)<textarea name="notes" rows="3" maxlength="600"></textarea></label>
+  </div><div id="expense-error"></div><div class="form-actions"><button type="button" class="btn" onclick="modal.close()">Cancelar</button><button class="btn primary" type="submit">Guardar gasto</button></div></form>`);
+ document.querySelector('#expense-form').onsubmit=async e=>{
+  e.preventDefault();const form=e.target,btn=form.querySelector('[type=submit]');btn.disabled=true;
+  const d=Object.fromEntries(new FormData(form));d.amount=Number(d.amount);d.requestId=token;
+  try{expenseData=await api('expenses/expenses','POST',d);modal.close();paintExpenses();toast(d.status==='paid'?'Gasto registrado.':'Cuenta pendiente registrada.')}
+  catch(err){document.querySelector('#expense-error').innerHTML=errorBox(err.message);btn.disabled=false}
+ };
+}
+function toggleExpenseStatusFields(status){
+ const paid=document.querySelector('#expense-paid-fields'),pending=document.querySelector('#expense-pending-fields');
+ if(paid)paid.style.display=status==='paid'?'block':'none';
+ if(pending)pending.style.display=status==='pending'?'block':'none';
+}
+function payExpenseForm(id){
+ const e=(expenseData.expenses||[]).find(x=>Number(x.id)===Number(id));if(!e)return;
+ showModal('Registrar pago de gasto',`
+  <div class="notice neutral" style="margin-bottom:16px"><strong>${esc(e.concept)}</strong><br>${money(e.amount)}${e.supplier_name?' · '+esc(e.supplier_name):''}</div>
+  <form id="pay-expense-form"><div class="form-grid">
+   <label class="field">Medio de pago<select name="method"><option>Efectivo</option><option>Transferencia</option></select></label>
+   ${field('Referencia (si es transferencia)','reference','','text',false,false,150)}
+   ${field('Fecha de pago','paidDate',accountingToday(),'date')}
+  </div><div id="pay-expense-error"></div><div class="form-actions"><button type="button" class="btn" onclick="modal.close()">Cancelar</button><button class="btn primary" type="submit">Confirmar pago</button></div></form>`);
+ document.querySelector('#pay-expense-form').onsubmit=async ev=>{
+  ev.preventDefault();const form=ev.target,btn=form.querySelector('[type=submit]');btn.disabled=true;
+  const d=Object.fromEntries(new FormData(form));
+  try{expenseData=await api('expenses/expenses/'+id+'/pay','POST',d);modal.close();paintExpenses();toast('Gasto marcado como pagado.')}
+  catch(err){document.querySelector('#pay-expense-error').innerHTML=errorBox(err.message);btn.disabled=false}
+ };
 }

@@ -36,10 +36,12 @@ export async function ensureExpenseTables(){
   method TEXT NOT NULL DEFAULT '',
   reference TEXT NOT NULL DEFAULT '',
   due_date TEXT,
+  paid_date TEXT,
   notes TEXT NOT NULL DEFAULT '',
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL
  )`).run();
+ try{await database.prepare('ALTER TABLE expenses ADD COLUMN paid_date TEXT').run()}catch{}
  await database.prepare('CREATE INDEX IF NOT EXISTS expenses_date_idx ON expenses(expense_date)').run();
  await database.prepare('CREATE INDEX IF NOT EXISTS expenses_supplier_idx ON expenses(supplier_id)').run();
 }
@@ -87,7 +89,7 @@ export async function expensesHandle(method:string,path:string[],body:any,m:any)
   const paidDate=date(body.paidDate,'fecha de pago');
   const when=now();
   await database.batch([
-   database.prepare("UPDATE expenses SET status='paid',expense_date=?,method=?,reference=?,due_date=NULL WHERE id=?").bind(paidDate,methodValue,reference,id),
+   database.prepare("UPDATE expenses SET status='paid',paid_date=?,method=?,reference=?,due_date=NULL WHERE id=?").bind(paidDate,methodValue,reference,id),
    database.prepare("INSERT INTO audit(id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(),m.id,'expense_paid',String(id),when)
   ]);
   return {id,status:'paid',...await snapshot()};
@@ -123,8 +125,8 @@ export async function expensesHandle(method:string,path:string[],body:any,m:any)
   const prior:any=await database.prepare('SELECT id FROM expenses WHERE request_id=?').bind(requestId).first();
   if(prior)return {id:prior.id,...await snapshot()};
   const when=now();
-  const res:any=await database.prepare(`INSERT INTO expenses(request_id,expense_date,category,concept,amount,supplier_id,supplier_name,status,method,reference,due_date,notes,created_by,created_at)
-   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(requestId,expenseDate,category,concept,value,supplierId||null,supplierName,status,method,reference,dueDate,notes,m.id,when).run();
+  const res:any=await database.prepare(`INSERT INTO expenses(request_id,expense_date,category,concept,amount,supplier_id,supplier_name,status,method,reference,due_date,paid_date,notes,created_by,created_at)
+   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(requestId,expenseDate,category,concept,value,supplierId||null,supplierName,status,method,reference,dueDate,status==='paid'?expenseDate:null,notes,m.id,when).run();
   const id=String(res.meta?.last_row_id||'');
   await database.prepare("INSERT INTO audit(id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(),m.id,'expense_created',id,when).run();
   return {id:Number(id),...await snapshot()};

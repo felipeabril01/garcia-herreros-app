@@ -45,7 +45,7 @@ export async function financeHandle(method:string,path:string[],body:any,m:any){
  }
  if(method==='POST'&&path[0]==='reports'&&path[1]==='income'){
   const start=date(body.startDate),end=date(body.endDate);if(end<start)fail(400,'La fecha final debe ser igual o posterior a la inicial.');
-  const payments:any[]=(await database.prepare(`SELECT p.id,p.athlete_id,p.athlete_name,p.amount,p.method,p.payer,p.reference,p.paid_date,p.created_at,a.category,
+  const paymentRows:any[]=(await database.prepare(`SELECT p.id,p.athlete_id,p.athlete_name,p.amount,p.method,p.payer,p.reference,p.paid_date,p.created_at,a.category,
     GROUP_CONCAT(c.kind||' '||c.period, ', ') AS concepts
     FROM payments p
     LEFT JOIN athletes a ON a.id=p.athlete_id
@@ -54,17 +54,26 @@ export async function financeHandle(method:string,path:string[],body:any,m:any){
     WHERE p.status='confirmed' AND p.paid_date BETWEEN ? AND ?
     GROUP BY p.id
     ORDER BY p.paid_date DESC,p.id DESC`).bind(start,end).all()).results;
-  const concepts:any[]=(await database.prepare(`SELECT c.kind,SUM(al.amount) AS total
+  const uniformRows:any[]=(await database.prepare(`SELECT m.id,m.athlete_id,m.athlete_name,(m.quantity*m.unit_price) AS amount,m.method,'' AS payer,m.reference,m.movement_date AS paid_date,m.created_at,a.category,
+    ('Uniforme · '||i.name||' · Talla '||i.size||' · '||m.quantity||' und.') AS concepts
+    FROM uniform_movements m JOIN uniform_items i ON i.id=m.item_id
+    LEFT JOIN athletes a ON a.id=m.athlete_id
+    WHERE m.kind='sale' AND m.movement_date BETWEEN ? AND ?
+    ORDER BY m.movement_date DESC,m.id DESC`).bind(start,end).all()).results;
+  const payments=[...paymentRows.map((p:any)=>({...p,source:'payment'})),...uniformRows.map((p:any)=>({...p,source:'uniform'}))]
+   .sort((a:any,b:any)=>String(b.paid_date).localeCompare(String(a.paid_date))||Number(b.id)-Number(a.id));
+  const financeConcepts:any[]=(await database.prepare(`SELECT c.kind,SUM(al.amount) AS total
     FROM allocations al JOIN payments p ON p.id=al.payment_id JOIN charges c ON c.id=al.charge_id
     WHERE p.status='confirmed' AND p.paid_date BETWEEN ? AND ?
     GROUP BY c.kind ORDER BY total DESC`).bind(start,end).all()).results;
-  const methods:any[]=(await database.prepare(`SELECT method,SUM(amount) AS total,COUNT(*) AS count
-    FROM payments WHERE status='confirmed' AND paid_date BETWEEN ? AND ?
-    GROUP BY method ORDER BY total DESC`).bind(start,end).all()).results;
-  const categories:any[]=(await database.prepare(`SELECT COALESCE(a.category,'Sin categoría') AS category,SUM(p.amount) AS total,COUNT(*) AS count
-    FROM payments p LEFT JOIN athletes a ON a.id=p.athlete_id
-    WHERE p.status='confirmed' AND p.paid_date BETWEEN ? AND ?
-    GROUP BY COALESCE(a.category,'Sin categoría') ORDER BY total DESC`).bind(start,end).all()).results;
+  const uniformTotal=uniformRows.reduce((sum:number,p:any)=>sum+Number(p.amount||0),0);
+  const concepts=[...financeConcepts,...(uniformTotal?[{kind:'uniforme',total:uniformTotal}]:[])];
+  const methodMap=new Map<string,{method:string,total:number,count:number}>();
+  for(const p of payments){const key=String(p.method||'Sin medio');const x=methodMap.get(key)||{method:key,total:0,count:0};x.total+=Number(p.amount||0);x.count++;methodMap.set(key,x);}
+  const methods=[...methodMap.values()].sort((a,b)=>b.total-a.total);
+  const categoryMap=new Map<string,{category:string,total:number,count:number}>();
+  for(const p of payments){const key=String(p.category||'Sin categoría');const x=categoryMap.get(key)||{category:key,total:0,count:0};x.total+=Number(p.amount||0);x.count++;categoryMap.set(key,x);}
+  const categories=[...categoryMap.values()].sort((a,b)=>b.total-a.total);
   const total=payments.reduce((sum:number,p:any)=>sum+Number(p.amount||0),0);
   return {startDate:start,endDate:end,total,count:payments.length,payments,concepts,methods,categories};
  }

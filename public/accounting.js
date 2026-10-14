@@ -220,20 +220,18 @@ function paintUniformInventory(){
    ${items.map(i=>`<tr><td><strong>${esc(i.name)}</strong></td><td>${esc(i.size)}</td><td><span class="badge ${Number(i.stock)>0?'ok':'warn'}">${i.stock}</span></td><td>${money(i.last_unit_cost||0)}</td><td><strong>${money(i.sale_price||0)}</strong></td><td>${money(Number(i.stock||0)*Number(i.last_unit_cost||0))}</td></tr>`).join('')||'<tr><td colspan="6"><div class="empty">Aún no hay uniformes registrados.</div></td></tr>'}
   </tbody></table></div>
  </section>
- <div class="dashboard-grid">
-  <section class="card">
-   <div class="card-head"><div><h2>Últimas entradas</h2><p>Uniformes recibidos por el club.</p></div></div>
-   <div class="table-wrap"><table class="roster-table"><thead><tr><th>Fecha</th><th>Prenda</th><th>Talla</th><th>Cant.</th><th>Costo</th><th>Proveedor</th></tr></thead><tbody>
-    ${moves.filter(m=>m.kind==='entry').map(m=>`<tr><td>${dateText(m.movement_date)}</td><td><strong>${esc(m.name)}</strong></td><td>${esc(m.size)}</td><td>${m.quantity}</td><td>${money(m.unit_cost)}</td><td>${esc(m.supplier||'No registrado')}</td></tr>`).join('')||'<tr><td colspan="6"><div class="empty">Aún no hay entradas registradas.</div></td></tr>'}
-   </tbody></table></div>
-  </section>
-  <section class="card">
-   <div class="card-head"><div><h2>Últimas ventas</h2><p>Ventas que ya descontaron inventario.</p></div></div>
-   <div class="table-wrap"><table class="roster-table"><thead><tr><th>Fecha</th><th>Uniforme</th><th>Deportista</th><th>Cant.</th><th>Total</th><th>Medio</th></tr></thead><tbody>
-    ${moves.filter(m=>m.kind==='sale').map(m=>`<tr><td>${dateText(m.movement_date)}</td><td><strong>${esc(m.name)}</strong><br><span class="muted">Talla ${esc(m.size)}</span></td><td>${esc(m.athlete_name||'')}</td><td>${m.quantity}</td><td><strong>${money(Number(m.quantity)*Number(m.unit_price||0))}</strong></td><td>${esc(m.method||'')}${m.reference?'<br><span class="muted">Ref. '+esc(m.reference)+'</span>':''}</td></tr>`).join('')||'<tr><td colspan="6"><div class="empty">Aún no hay ventas registradas.</div></td></tr>'}
-   </tbody></table></div>
-  </section>
- </div>`;
+ <section class="card">
+  <div class="card-head"><div><h2>Últimas entradas</h2><p>Uniformes recibidos por el club.</p></div></div>
+  <div class="table-wrap"><table class="roster-table"><thead><tr><th>Fecha</th><th>Prenda</th><th>Talla</th><th>Cant.</th><th>Costo</th><th>Proveedor</th></tr></thead><tbody>
+   ${moves.filter(m=>m.kind==='entry').map(m=>`<tr><td>${dateText(m.movement_date)}</td><td><strong>${esc(m.name)}</strong></td><td>${esc(m.size)}</td><td>${m.quantity}</td><td>${money(m.unit_cost)}</td><td>${esc(m.supplier||'No registrado')}</td></tr>`).join('')||'<tr><td colspan="6"><div class="empty">Aún no hay entradas registradas.</div></td></tr>'}
+  </tbody></table></div>
+ </section>
+ <section class="card">
+  <div class="card-head"><div><h2>Últimas ventas</h2><p>Ventas que ya descontaron inventario.</p></div></div>
+  <div class="table-wrap"><table class="roster-table"><thead><tr><th>Fecha</th><th>Uniforme</th><th>Deportista</th><th>Cant.</th><th>Total</th><th>Medio</th></tr></thead><tbody>
+   ${moves.filter(m=>m.kind==='sale').map(m=>`<tr><td>${dateText(m.movement_date)}</td><td><strong>${esc(m.name)}</strong><br><span class="muted">Talla ${esc(m.size)}</span></td><td>${esc(m.athlete_name||'')}</td><td>${m.quantity}</td><td><strong>${money(Number(m.quantity)*Number(m.unit_price||0))}</strong></td><td>${esc(m.method||'')}${m.reference?'<br><span class="muted">Ref. '+esc(m.reference)+'</span>':''}</td></tr>`).join('')||'<tr><td colspan="6"><div class="empty">Aún no hay ventas registradas.</div></td></tr>'}
+  </tbody></table></div>
+ </section>`;
 }
 function uniformEntryForm(){
  const token=crypto.randomUUID();

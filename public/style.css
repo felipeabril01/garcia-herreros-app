@@ -9,3 +9,15 @@
 .finance-tools{display:flex;gap:12px;align-items:center;justify-content:space-between;margin:0 0 20px;flex-wrap:wrap}.finance-tools .finance-search{margin:0}.overdue-card{border-color:#f0c7cc}.overdue-card .card-head{background:#fff8f8}.overdue-card .info-row>div:first-child{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.finance-stats{grid-template-columns:repeat(4,1fr)}@media(max-width:900px){.finance-stats{grid-template-columns:repeat(2,1fr)}}@media(max-width:600px){.finance-stats{grid-template-columns:1fr}.finance-tools{align-items:stretch}.finance-tools .search,.finance-tools .filter{max-width:none;width:100%}}
 
 .payment-row-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.receipt .form-actions{flex-wrap:wrap}.account-actions{flex-wrap:wrap}@media(max-width:700px){.payment-row-actions{width:100%;justify-content:flex-start}.receipt .form-actions{justify-content:stretch}.receipt .form-actions .btn{flex:1 1 100%}}
+
+/* Foto privada del personal */
+.staff-avatar{position:relative;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;border-radius:50%}
+.staff-avatar img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.staff-avatar.loaded .staff-avatar-fallback{visibility:hidden}
+.staff-access-content{display:flex;align-items:center;gap:12px;margin-top:12px;min-width:0}
+.staff-access-content .staff-avatar{width:48px;height:48px;font-size:13px}
+.staff-access-content strong{font-size:clamp(16px,1.6vw,23px);line-height:1.15;overflow-wrap:anywhere}
+.staff-access-content small{display:block;font-size:12px;color:var(--muted);margin-top:5px}
+.staff-photo-editor{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.staff-photo-editor .staff-avatar.large{width:96px;height:96px;flex:0 0 96px;font-size:22px}
+.staff-photo-upload{display:inline-flex;align-items:center;cursor:pointer;margin-top:8px}

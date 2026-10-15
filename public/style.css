@@ -21,3 +21,10 @@
 .staff-photo-editor{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
 .staff-photo-editor .staff-avatar.large{width:96px;height:96px;flex:0 0 96px;font-size:22px}
 .staff-photo-upload{display:inline-flex;align-items:center;cursor:pointer;margin-top:8px}
+
+.staff-camera-panel{width:100%;max-width:440px;margin-top:16px}
+.staff-camera-panel[hidden]{display:none!important}
+.staff-camera-panel video{display:block;width:100%;max-height:360px;background:#14254b;object-fit:cover;border-radius:12px}
+.staff-camera-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.staff-photo-editor>div{min-width:0}
+.staff-photo-editor button{margin-top:8px}

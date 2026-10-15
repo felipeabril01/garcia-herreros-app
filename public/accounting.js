@@ -1,9 +1,10 @@
 'use strict';
 const accountingToday=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Bogota',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-let accountingReport=null,accountingStart=accountingToday().slice(0,7)+'-01',accountingEnd=accountingToday(),accountingSection='income';
+let accountingReport=null,accountingStart=accountingToday().slice(0,7)+'-01',accountingEnd=accountingToday(),accountingSection='summary',accountingSummary=null;
 function accountingPage(){setTimeout(()=>{renderAccountingSection()},0);return title('CONTABILIDAD','Control financiero del club.','Consulta ingresos, pagos a entrenadores, uniformes, gastos y proveedores.')+`
 <div class="card" style="padding:10px 12px;margin-bottom:16px">
  <div class="form-actions" style="justify-content:flex-start;margin:0;gap:8px">
+  <button type="button" class="btn ${accountingSection==='summary'?'primary':''}" onclick="switchAccountingSection('summary')">Resumen general</button>
   <button type="button" class="btn ${accountingSection==='income'?'primary':''}" onclick="switchAccountingSection('income')">Ingresos</button>
   <button type="button" class="btn ${accountingSection==='coach'?'primary':''}" onclick="switchAccountingSection('coach')">Pagos a entrenadores</button>
   <button type="button" class="btn ${accountingSection==='uniforms'?'primary':''}" onclick="switchAccountingSection('uniforms')">Uniformes e inventario</button>
@@ -18,6 +19,16 @@ function switchAccountingSection(section){
 }
 function renderAccountingSection(){
  const el=document.querySelector('#accounting-section');if(!el)return;
+ if(accountingSection==='summary'){
+  el.innerHTML=`<section class="card" style="padding:18px">
+   <div class="card-head" style="margin-bottom:12px"><div><h2>Resumen contable general</h2><p>Ingresos, egresos y saldo neto del periodo.</p></div><button type="button" class="btn primary" onclick="loadAccountingSummary(true)">Actualizar resumen</button></div>
+   <div class="form-grid" style="margin-bottom:0">
+    ${field('Desde','summaryStart',accountingStart,'date')}
+    ${field('Hasta','summaryEnd',accountingEnd,'date')}
+   </div>
+  </section><div id="accounting-summary-content" aria-live="polite">Cargando resumen…</div>`;
+  loadAccountingSummary();return;
+ }
  if(accountingSection==='coach'){
   el.innerHTML='<div id="coach-payments-content">Cargando pagos a entrenadores…</div>';
   loadCoachPayments();return;
@@ -408,4 +419,84 @@ function payExpenseForm(id){
   try{expenseData=await api('expenses/expenses/'+id+'/pay','POST',d);modal.close();paintExpenses();toast('Gasto marcado como pagado.')}
   catch(err){document.querySelector('#pay-expense-error').innerHTML=errorBox(err.message);btn.disabled=false}
  };
+}
+
+
+async function loadAccountingSummary(fromForm=false){
+ const el=document.querySelector('#accounting-summary-content');if(!el)return;
+ if(fromForm){
+  accountingStart=document.querySelector('[name=summaryStart]')?.value||accountingStart;
+  accountingEnd=document.querySelector('[name=summaryEnd]')?.value||accountingEnd;
+ }
+ el.innerHTML='<p>Cargando resumen contable…</p>';
+ try{
+  const [income,expensesResult,payrollResult]=await Promise.all([
+   api('finance/reports/income','POST',{startDate:accountingStart,endDate:accountingEnd}),
+   api('expenses'),
+   api('payroll')
+  ]);
+  const expenses=(expensesResult.expenses||[]);
+  const paidExpenses=expenses.filter(e=>{
+   if(e.status!=='paid')return false;
+   const d=e.paid_date||e.expense_date;
+   return d>=accountingStart&&d<=accountingEnd;
+  });
+  const pendingExpenses=expenses.filter(e=>e.status==='pending');
+  const coach=payrollResult.payments||[];
+  const coachInPeriod=coach.filter(p=>p.paid_date>=accountingStart&&p.paid_date<=accountingEnd);
+  const expenseTotal=paidExpenses.reduce((s,e)=>s+Number(e.amount||0),0);
+  const coachTotal=coachInPeriod.reduce((s,p)=>s+Number(p.amount||0),0);
+  const outTotal=expenseTotal+coachTotal;
+  const pendingTotal=pendingExpenses.reduce((s,e)=>s+Number(e.amount||0),0);
+  const net=Number(income.total||0)-outTotal;
+  accountingSummary={startDate:accountingStart,endDate:accountingEnd,income,paidExpenses,pendingExpenses,coachInPeriod,expenseTotal,coachTotal,outTotal,pendingTotal,net};
+  paintAccountingSummary();
+ }catch(e){el.innerHTML=errorBox(e.message)}
+}
+function paintAccountingSummary(){
+ const el=document.querySelector('#accounting-summary-content'),r=accountingSummary;if(!el||!r)return;
+ const categories=new Map();
+ r.paidExpenses.forEach(e=>categories.set(e.category,(categories.get(e.category)||0)+Number(e.amount||0)));
+ if(r.coachTotal)categories.set('Pagos a entrenadores',(categories.get('Pagos a entrenadores')||0)+r.coachTotal);
+ const pendingCoach=r.coachInPeriod.filter(p=>p.status==='pending_confirmation').length;
+ el.innerHTML=`
+  <div class="card-head" style="margin:16px 0"><div><h2>Resultado del periodo</h2><p>${dateText(r.startDate)} al ${dateText(r.endDate)}</p></div><button class="btn" onclick="printAccountingSummary()">Generar cierre / PDF</button></div>
+  <div class="stats">
+   ${stat('Ingresos',money(r.income.total||0),r.income.count+' movimientos','wallet')}
+   ${stat('Egresos pagados',money(r.outTotal),r.paidExpenses.length+r.coachInPeriod.length+' movimientos','wallet')}
+   ${stat('Saldo neto',money(r.net),r.net>=0?'Resultado positivo':'Resultado negativo','check')}
+  </div>
+  <div class="stats">
+   ${stat('Cuentas por pagar',money(r.pendingTotal),r.pendingExpenses.length+' pendientes','clock')}
+   ${stat('Pagos a entrenadores',money(r.coachTotal),r.coachInPeriod.length+' pagos','wallet')}
+   ${stat('Por confirmar entrenador',pendingCoach,pendingCoach?'Requieren confirmación':'Sin confirmaciones pendientes','clock')}
+  </div>
+  <div class="dashboard-grid">
+   <section class="card"><div class="card-head"><h2>Ingresos por concepto</h2></div>
+    ${r.income.concepts.map(x=>`<div class="info-row"><strong>${esc(accountingKindLabel(x.kind))}</strong><strong>${money(x.total)}</strong></div>`).join('')||'<div class="empty">Sin ingresos en el periodo.</div>'}
+   </section>
+   <section class="card"><div class="card-head"><h2>Egresos pagados por concepto</h2></div>
+    ${[...categories.entries()].sort((a,b)=>b[1]-a[1]).map(([name,total])=>`<div class="info-row"><strong>${esc(name)}</strong><strong>${money(total)}</strong></div>`).join('')||'<div class="empty">Sin egresos pagados en el periodo.</div>'}
+   </section>
+  </div>
+  <section class="card">
+   <div class="card-head"><div><h2>Cuentas pendientes</h2><p>Obligaciones aún no pagadas, sin importar la fecha de origen.</p></div><span class="badge ${r.pendingExpenses.length?'warn':'ok'}">${r.pendingExpenses.length} pendientes</span></div>
+   <div class="table-wrap"><table><thead><tr><th>Concepto</th><th>Proveedor</th><th>Vencimiento</th><th>Valor</th></tr></thead><tbody>
+    ${r.pendingExpenses.map(e=>`<tr><td><strong>${esc(e.concept)}</strong><br><span class="muted">${esc(e.category)}</span></td><td>${esc(e.supplier_name||'Sin proveedor')}</td><td>${e.due_date?dateText(e.due_date):'Sin fecha'}</td><td><strong>${money(e.amount)}</strong></td></tr>`).join('')||'<tr><td colspan="4"><div class="empty">No hay cuentas pendientes por pagar.</div></td></tr>'}
+   </tbody></table></div>
+  </section>`;
+}
+function printAccountingSummary(){
+ const r=accountingSummary;if(!r)return toast('Primero genera el resumen contable.');
+ const categoryMap=new Map();
+ r.paidExpenses.forEach(e=>categoryMap.set(e.category,(categoryMap.get(e.category)||0)+Number(e.amount||0)));
+ if(r.coachTotal)categoryMap.set('Pagos a entrenadores',(categoryMap.get('Pagos a entrenadores')||0)+r.coachTotal);
+ const incomes=r.income.concepts.map(x=>'<tr><td>'+esc(accountingKindLabel(x.kind))+'</td><td>'+money(x.total)+'</td></tr>').join('');
+ const expenses=[...categoryMap.entries()].sort((a,b)=>b[1]-a[1]).map(([k,v])=>'<tr><td>'+esc(k)+'</td><td>'+money(v)+'</td></tr>').join('');
+ const pending=r.pendingExpenses.map(e=>'<tr><td>'+esc(e.concept)+'</td><td>'+esc(e.supplier_name||'Sin proveedor')+'</td><td>'+(e.due_date?dateText(e.due_date):'Sin fecha')+'</td><td>'+money(e.amount)+'</td></tr>').join('');
+ const body='<div class="head"><div><span class="label">CIERRE CONTABLE DEL PERIODO</span><h1>'+dateText(r.startDate)+' al '+dateText(r.endDate)+'</h1><div class="sub">Generado: '+dateText(accountingToday())+'</div></div><span class="status">'+(r.net>=0?'SALDO POSITIVO':'SALDO NEGATIVO')+'</span></div>'+
+ '<div class="grid"><div class="cell"><span class="label">INGRESOS</span><strong>'+money(r.income.total||0)+'</strong></div><div class="cell"><span class="label">EGRESOS PAGADOS</span><strong>'+money(r.outTotal)+'</strong></div><div class="cell"><span class="label">SALDO NETO</span><strong>'+money(r.net)+'</strong></div><div class="cell"><span class="label">CUENTAS POR PAGAR</span><strong>'+money(r.pendingTotal)+'</strong></div></div>'+
+ '<div class="grid" style="margin-top:18px"><div class="cell"><span class="label">INGRESOS POR CONCEPTO</span><table class="tbl"><tbody>'+incomes+'</tbody></table></div><div class="cell"><span class="label">EGRESOS PAGADOS POR CONCEPTO</span><table class="tbl"><tbody>'+expenses+'</tbody></table></div></div>'+
+ '<div style="margin-top:22px"><span class="label">CUENTAS PENDIENTES</span><table class="tbl"><thead><tr><th>Concepto</th><th>Proveedor</th><th>Vence</th><th>Valor</th></tr></thead><tbody>'+pending+'</tbody></table></div>';
+ coachPaymentPrintWindow('Cierre contable García Herreros FC',body);
 }

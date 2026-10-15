@@ -58,6 +58,7 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   await ensureCoachPaymentsTable();
   await ensureUniformInventoryTables();
   await ensureExpenseTables();
+  try{await database.prepare('ALTER TABLE athletes ADD COLUMN internal_note TEXT').run()}catch{}
   await database.prepare("UPDATE athletes SET modality='Mensual',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),version=version+1 WHERE modality IS NULL OR trim(modality)<>'Mensual'").run();
   await ensureMonthlyCharges();
   const result=await database.prepare('SELECT * FROM athletes ORDER BY name').all();const extraCategories=[...new Set(result.results.map((a:any)=>a.category).filter((x:any)=>x&&!CLUB.categories.includes(x)))];const categories=m.role===ADMIN?[...CLUB.categories,...extraCategories]:coachCategories(m.coach_id);const staff=m.role===ADMIN?(await database.prepare('SELECT id,name,title,role,coach_id,email,username,active,owner,(password_hash IS NOT NULL) AS has_password FROM staff ORDER BY owner DESC,role,name').all()).results:[];
@@ -94,6 +95,16 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   return {id,status:'incomplete'};
  }
  if(path[0]==='athletes'&&method==='POST'&&path.length===1){requireAdmin(m);const v=athleteValues(body);const id=str(body.requestId,'identificador',36);if(!/^[0-9a-f-]{36}$/.test(id))fail(400,'Identificador inválido');const previous:any=await database.prepare('SELECT id,created_by FROM athletes WHERE id=?').bind(id).first();if(previous){if(previous.created_by!==m.id)fail(409,'Identificador no disponible');return {id};}const time=now();const keys=Object.keys(v);await database.batch([database.prepare(`INSERT INTO athletes(id,${keys.join(',')},status,created_by,created_at,updated_at,version) VALUES (${Array(keys.length+5).fill('?').join(',')},1)`).bind(id,...Object.values(v),'active',m.id,time,time),auditStmt(m.id,'athlete_created',id)]);return {id};}
+ if(path[0]==='athletes'&&path[1]&&path[2]==='note'&&method==='PUT'){
+  const a:any=await athleteFor(path[1],m);
+  const note=str(body.note,'nota interna',700,false);
+  const time=now();
+  await database.batch([
+   database.prepare('UPDATE athletes SET internal_note=?,updated_at=?,version=version+1 WHERE id=?').bind(note||null,time,a.id),
+   auditStmt(m.id,note?'athlete_internal_note_updated':'athlete_internal_note_cleared',a.id)
+  ]);
+  return {id:a.id,note};
+ }
  if(path[0]==='athletes'&&path[1]&&path[2]==='status'&&method==='PUT'){
   requireAdmin(m);
   const a:any=await athleteFor(path[1],m);

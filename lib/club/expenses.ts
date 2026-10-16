@@ -69,7 +69,7 @@ async function snapshot(){
    FROM expense_payments p
    JOIN expenses e ON e.id=p.expense_id
    LEFT JOIN staff s ON s.id=p.created_by
-   ORDER BY p.payment_date DESC,p.id DESC LIMIT 2000`).all()).results as any[];
+   ORDER BY p.payment_date DESC,p.id DESC`).all()).results as any[];
  const sums=new Map<number,number>(),counts=new Map<number,number>();
  for(const p of payments){
   const id=Number(p.expense_id);

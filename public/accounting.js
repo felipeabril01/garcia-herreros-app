@@ -324,28 +324,37 @@ async function loadExpenses(){
  try{expenseData=await api('expenses');paintExpenses()}catch(e){el.innerHTML=errorBox(e.message)}
 }
 function expenseStatus(e){
- return e.status==='paid'?'<span class="badge ok">Pagado</span>':'<span class="badge warn">Pendiente</span>';
+ if(e.status==='paid')return '<span class="badge ok">Pagado</span>';
+ if(e.status==='partial')return '<span class="badge blue">Pago parcial</span>';
+ return '<span class="badge warn">Pendiente</span>';
+}
+function expensePaymentRows(e){
+ const rows=(expenseData.payments||[]).filter(p=>Number(p.expense_id)===Number(e.id));
+ if(rows.length)return rows;
+ if(e.status==='paid'&&Number(e.paid_amount||0)>0)return [{id:'legacy-'+e.id,expense_id:e.id,payment_date:e.paid_date||e.expense_date,amount:e.amount,method:e.method||'',reference:e.reference||'',recorder:e.recorder||''}];
+ return [];
 }
 function paintExpenses(){
  const el=document.querySelector('#expenses-content');if(!el)return;
  const expenses=expenseData.expenses||[],suppliers=expenseData.suppliers||[];
- const paid=expenses.filter(e=>e.status==='paid');
- const pending=expenses.filter(e=>e.status==='pending');
- const paidTotal=paid.reduce((s,e)=>s+Number(e.amount||0),0);
- const pendingTotal=pending.reduce((s,e)=>s+Number(e.amount||0),0);
+ const paidTotal=expenses.reduce((s,e)=>s+Number(e.paid_amount||0),0);
+ const pendingExpenses=expenses.filter(e=>Number(e.balance||0)>0);
+ const pendingTotal=pendingExpenses.reduce((s,e)=>s+Number(e.balance||0),0);
+ const partialCount=expenses.filter(e=>e.status==='partial').length;
  el.innerHTML=`
  <section class="card">
-  <div class="card-head"><div><h2>Gastos y proveedores</h2><p>Registra egresos del club y controla las cuentas pendientes de pago.</p></div><div class="actions"><button class="btn" onclick="supplierForm()">Nuevo proveedor</button><button class="btn primary" onclick="expenseForm()">Registrar gasto</button></div></div>
+  <div class="card-head"><div><h2>Gastos y proveedores</h2><p>Registra obligaciones, abonos y pagos del club.</p></div><div class="actions"><button class="btn" onclick="supplierForm()">Nuevo proveedor</button><button class="btn primary" onclick="expenseForm()">Registrar gasto</button></div></div>
   <div class="stats">
-   ${stat('Gastos pagados',money(paidTotal),paid.length+' movimientos','wallet')}
-   ${stat('Cuentas pendientes',money(pendingTotal),pending.length+' por pagar','clock')}
-   ${stat('Proveedores',suppliers.length,'Activos registrados','check')}
+   ${stat('Egresos realizados',money(paidTotal),'Pagos y abonos registrados','wallet')}
+   ${stat('Saldo por pagar',money(pendingTotal),pendingExpenses.length+' obligaciones abiertas','clock')}
+   ${stat('Pagos parciales',partialCount,'Gastos con abonos','check')}
+   ${stat('Proveedores',suppliers.length,'Activos registrados','users')}
   </div>
  </section>
  <section class="card">
-  <div class="card-head"><div><h2>Movimientos de gastos</h2><p>Historial de egresos y obligaciones registradas.</p></div></div>
-  <div class="table-wrap"><table class="roster-table"><thead><tr><th>Fecha</th><th>Concepto</th><th>Categoría</th><th>Proveedor</th><th>Valor</th><th>Estado</th><th>Medio / Vence</th><th></th></tr></thead><tbody>
-   ${expenses.map(e=>`<tr><td>${dateText(e.expense_date)}</td><td><strong>${esc(e.concept)}</strong>${e.notes?'<br><span class="muted">'+esc(e.notes)+'</span>':''}</td><td>${esc(e.category)}</td><td>${esc(e.supplier_name||'Sin proveedor')}</td><td><strong>${money(e.amount)}</strong></td><td>${expenseStatus(e)}</td><td>${e.status==='paid'?esc(e.method||'')+(e.reference?'<br><span class="muted">Ref. '+esc(e.reference)+'</span>':''):(e.due_date?'Vence '+dateText(e.due_date):'Pendiente')}</td><td>${e.status==='pending'?'<button class="btn primary" onclick="payExpenseForm('+e.id+')">Registrar pago</button>':''}</td></tr>`).join('')||'<tr><td colspan="8"><div class="empty">Aún no hay gastos registrados.</div></td></tr>'}
+  <div class="card-head"><div><h2>Movimientos de gastos</h2><p>Consulta el valor total, lo abonado y el saldo de cada obligación.</p></div></div>
+  <div class="table-wrap"><table class="roster-table"><thead><tr><th>Fecha</th><th>Concepto</th><th>Total</th><th>Abonado</th><th>Saldo</th><th>Estado</th><th>Vence</th><th></th></tr></thead><tbody>
+   ${expenses.map(e=>`<tr><td>${dateText(e.expense_date)}</td><td><strong>${esc(e.concept)}</strong><br><span class="muted">${esc(e.category)} · ${esc(e.supplier_name||'Sin proveedor')}</span>${e.notes?'<br><span class="muted">'+esc(e.notes)+'</span>':''}</td><td><strong>${money(e.amount)}</strong></td><td><strong>${money(e.paid_amount||0)}</strong></td><td><strong>${money(e.balance||0)}</strong></td><td>${expenseStatus(e)}</td><td>${Number(e.balance||0)>0?(e.due_date?dateText(e.due_date):'Sin fecha'):'—'}</td><td><div class="access-actions">${Number(e.balance||0)>0?'<button class="access-action-btn" onclick="payExpenseForm('+e.id+')">Registrar abono</button>':''}${Number(e.paid_amount||0)>0?'<button class="access-action-btn secondary" onclick="expensePaymentHistory('+e.id+')">Ver pagos</button>':''}</div></td></tr>`).join('')||'<tr><td colspan="8"><div class="empty">Aún no hay gastos registrados.</div></td></tr>'}
   </tbody></table></div>
  </section>
  <section class="card">
@@ -354,6 +363,11 @@ function paintExpenses(){
    ${suppliers.map(s=>`<tr><td><strong>${esc(s.name)}</strong></td><td>${esc(s.document||'—')}</td><td>${esc(s.phone||'—')}</td><td>${esc(s.email||'—')}</td><td>${esc(s.notes||'—')}</td></tr>`).join('')||'<tr><td colspan="5"><div class="empty">Aún no hay proveedores registrados.</div></td></tr>'}
   </tbody></table></div>
  </section>`;
+}
+function expensePaymentHistory(id){
+ const e=(expenseData.expenses||[]).find(x=>Number(x.id)===Number(id));if(!e)return;
+ const rows=expensePaymentRows(e);
+ showModal('Pagos y abonos · '+esc(e.concept),`<div class="stats"><article class="stat"><div class="stat-top">Valor total</div><strong>${money(e.amount)}</strong></article><article class="stat"><div class="stat-top">Abonado</div><strong>${money(e.paid_amount||0)}</strong></article><article class="stat"><div class="stat-top">Saldo pendiente</div><strong>${money(e.balance||0)}</strong></article></div><div class="table-wrap" style="margin-top:18px"><table><thead><tr><th>Fecha</th><th>Valor</th><th>Medio</th><th>Referencia</th><th>Registró</th></tr></thead><tbody>${rows.map(p=>`<tr><td>${dateText(p.payment_date)}</td><td><strong>${money(p.amount)}</strong></td><td>${esc(p.method||'—')}</td><td>${esc(p.reference||'—')}</td><td>${esc(p.recorder||'—')}</td></tr>`).join('')||'<tr><td colspan="5"><div class="empty">Aún no hay abonos registrados.</div></td></tr>'}</tbody></table></div><div class="form-actions"><button class="btn" type="button" onclick="modal.close()">Cerrar</button>${Number(e.balance||0)>0?'<button class="btn primary" type="button" onclick="payExpenseForm('+e.id+')">Registrar abono</button>':''}</div>`);
 }
 function supplierForm(){
  showModal('Nuevo proveedor',`
@@ -405,23 +419,27 @@ function toggleExpenseStatusFields(status){
  if(pending)pending.style.display=status==='pending'?'block':'none';
 }
 function payExpenseForm(id){
- const e=(expenseData.expenses||[]).find(x=>Number(x.id)===Number(id));if(!e)return;
- showModal('Registrar pago de gasto',`
-  <div class="notice neutral" style="margin-bottom:16px"><strong>${esc(e.concept)}</strong><br>${money(e.amount)}${e.supplier_name?' · '+esc(e.supplier_name):''}</div>
+ const e=(expenseData.expenses||[]).find(x=>Number(x.id)===Number(id));if(!e||Number(e.balance||0)<=0)return;
+ const token=crypto.randomUUID();
+ showModal('Registrar abono',`
+  <div class="notice neutral" style="margin-bottom:16px"><strong>${esc(e.concept)}</strong><br>Valor total: ${money(e.amount)} · Abonado: ${money(e.paid_amount||0)} · <strong>Saldo: ${money(e.balance||0)}</strong></div>
   <form id="pay-expense-form"><div class="form-grid">
+   ${field('Valor del abono','amount','','number',true,false,12)}
    <label class="field">Medio de pago<select name="method"><option>Efectivo</option><option>Transferencia</option></select></label>
    ${field('Referencia (si es transferencia)','reference','','text',false,false,150)}
-   ${field('Fecha de pago','paidDate',accountingToday(),'date')}
-  </div><div id="pay-expense-error"></div><div class="form-actions"><button type="button" class="btn" onclick="modal.close()">Cancelar</button><button class="btn primary" type="submit">Confirmar pago</button></div></form>`);
+   ${field('Fecha del abono','paidDate',accountingToday(),'date')}
+  </div><p class="muted">El abono no puede superar el saldo pendiente de ${money(e.balance||0)}.</p><div id="pay-expense-error"></div><div class="form-actions"><button type="button" class="btn" onclick="modal.close()">Cancelar</button><button class="btn primary" type="submit">Registrar abono</button></div></form>`);
  document.querySelector('#pay-expense-form').onsubmit=async ev=>{
   ev.preventDefault();const form=ev.target,btn=form.querySelector('[type=submit]');btn.disabled=true;
-  const d=Object.fromEntries(new FormData(form));
-  try{expenseData=await api('expenses/expenses/'+id+'/pay','POST',d);modal.close();paintExpenses();toast('Gasto marcado como pagado.')}
-  catch(err){document.querySelector('#pay-expense-error').innerHTML=errorBox(err.message);btn.disabled=false}
+  const d=Object.fromEntries(new FormData(form));d.amount=Number(d.amount);d.requestId=token;
+  if(!Number.isSafeInteger(d.amount)||d.amount<=0||d.amount>Number(e.balance||0)){document.querySelector('#pay-expense-error').innerHTML=errorBox('Ingresa un abono válido que no supere el saldo pendiente.');btn.disabled=false;return}
+  try{
+   expenseData=await api('expenses/expenses/'+id+'/pay','POST',d);
+   const updated=(expenseData.expenses||[]).find(x=>Number(x.id)===Number(id));
+   modal.close();paintExpenses();toast(updated?.status==='paid'?'Gasto pagado completamente.':'Abono registrado.');
+  }catch(err){document.querySelector('#pay-expense-error').innerHTML=errorBox(err.message);btn.disabled=false}
  };
 }
-
-
 async function loadAccountingSummary(fromForm=false){
  const el=document.querySelector('#accounting-summary-content');if(!el)return;
  if(fromForm){
@@ -435,39 +453,42 @@ async function loadAccountingSummary(fromForm=false){
    api('expenses'),
    api('payroll')
   ]);
-  const expenses=(expensesResult.expenses||[]);
-  const paidExpenses=expenses.filter(e=>{
-   if(e.status!=='paid')return false;
+  const expenses=(expensesResult.expenses||[]),payments=(expensesResult.payments||[]);
+  const expensesById=new Map(expenses.map(e=>[Number(e.id),e]));
+  const paymentExpenseIds=new Set(payments.map(p=>Number(p.expense_id)));
+  const expenseMovements=payments.filter(p=>p.payment_date>=accountingStart&&p.payment_date<=accountingEnd).map(p=>({...p,source:'payment'}));
+  expenses.filter(e=>e.status==='paid'&&!paymentExpenseIds.has(Number(e.id))).forEach(e=>{
    const d=e.paid_date||e.expense_date;
-   return d>=accountingStart&&d<=accountingEnd;
+   if(d>=accountingStart&&d<=accountingEnd)expenseMovements.push({expense_id:e.id,payment_date:d,amount:e.amount,method:e.method||'',reference:e.reference||'',category:e.category,concept:e.concept,supplier_name:e.supplier_name||'',source:'legacy'});
   });
-  const pendingExpenses=expenses.filter(e=>e.status==='pending');
+  expenseMovements.forEach(p=>{const e=expensesById.get(Number(p.expense_id));if(e){p.category=p.category||e.category;p.concept=p.concept||e.concept;p.supplier_name=p.supplier_name||e.supplier_name}});
+  const pendingExpenses=expenses.filter(e=>Number(e.balance||0)>0);
   const coach=payrollResult.payments||[];
   const coachInPeriod=coach.filter(p=>p.paid_date>=accountingStart&&p.paid_date<=accountingEnd);
-  const expenseTotal=paidExpenses.reduce((s,e)=>s+Number(e.amount||0),0);
+  const expenseTotal=expenseMovements.reduce((s,e)=>s+Number(e.amount||0),0);
   const coachTotal=coachInPeriod.reduce((s,p)=>s+Number(p.amount||0),0);
   const outTotal=expenseTotal+coachTotal;
-  const pendingTotal=pendingExpenses.reduce((s,e)=>s+Number(e.amount||0),0);
+  const pendingTotal=pendingExpenses.reduce((s,e)=>s+Number(e.balance||0),0);
   const net=Number(income.total||0)-outTotal;
-  accountingSummary={startDate:accountingStart,endDate:accountingEnd,income,paidExpenses,pendingExpenses,coachInPeriod,expenseTotal,coachTotal,outTotal,pendingTotal,net};
+  accountingSummary={startDate:accountingStart,endDate:accountingEnd,income,expenseMovements,pendingExpenses,coachInPeriod,expenseTotal,coachTotal,outTotal,pendingTotal,net};
   paintAccountingSummary();
  }catch(e){el.innerHTML=errorBox(e.message)}
 }
 function paintAccountingSummary(){
  const el=document.querySelector('#accounting-summary-content'),r=accountingSummary;if(!el||!r)return;
  const categories=new Map();
- r.paidExpenses.forEach(e=>categories.set(e.category,(categories.get(e.category)||0)+Number(e.amount||0)));
+ r.expenseMovements.forEach(e=>categories.set(e.category||'Otros',(categories.get(e.category||'Otros')||0)+Number(e.amount||0)));
  if(r.coachTotal)categories.set('Pagos a entrenadores',(categories.get('Pagos a entrenadores')||0)+r.coachTotal);
  const pendingCoach=r.coachInPeriod.filter(p=>p.status==='pending_confirmation').length;
  el.innerHTML=`
   <div class="card-head" style="margin:16px 0"><div><h2>Resultado del periodo</h2><p>${dateText(r.startDate)} al ${dateText(r.endDate)}</p></div><button class="btn" onclick="printAccountingSummary()">Generar cierre / PDF</button></div>
   <div class="stats">
    ${stat('Ingresos',money(r.income.total||0),r.income.count+' movimientos','wallet')}
-   ${stat('Egresos pagados',money(r.outTotal),r.paidExpenses.length+r.coachInPeriod.length+' movimientos','wallet')}
+   ${stat('Egresos pagados',money(r.outTotal),r.expenseMovements.length+r.coachInPeriod.length+' movimientos','wallet')}
    ${stat('Saldo neto',money(r.net),r.net>=0?'Resultado positivo':'Resultado negativo','check')}
   </div>
   <div class="stats">
-   ${stat('Cuentas por pagar',money(r.pendingTotal),r.pendingExpenses.length+' pendientes','clock')}
+   ${stat('Cuentas por pagar',money(r.pendingTotal),r.pendingExpenses.length+' obligaciones abiertas','clock')}
    ${stat('Pagos a entrenadores',money(r.coachTotal),r.coachInPeriod.length+' pagos','wallet')}
    ${stat('Por confirmar entrenador',pendingCoach,pendingCoach?'Requieren confirmación':'Sin confirmaciones pendientes','clock')}
   </div>
@@ -480,23 +501,23 @@ function paintAccountingSummary(){
    </section>
   </div>
   <section class="card">
-   <div class="card-head"><div><h2>Cuentas pendientes</h2><p>Obligaciones aún no pagadas, sin importar la fecha de origen.</p></div><span class="badge ${r.pendingExpenses.length?'warn':'ok'}">${r.pendingExpenses.length} pendientes</span></div>
-   <div class="table-wrap"><table><thead><tr><th>Concepto</th><th>Proveedor</th><th>Vencimiento</th><th>Valor</th></tr></thead><tbody>
-    ${r.pendingExpenses.map(e=>`<tr><td><strong>${esc(e.concept)}</strong><br><span class="muted">${esc(e.category)}</span></td><td>${esc(e.supplier_name||'Sin proveedor')}</td><td>${e.due_date?dateText(e.due_date):'Sin fecha'}</td><td><strong>${money(e.amount)}</strong></td></tr>`).join('')||'<tr><td colspan="4"><div class="empty">No hay cuentas pendientes por pagar.</div></td></tr>'}
+   <div class="card-head"><div><h2>Cuentas pendientes</h2><p>Obligaciones con saldo pendiente, incluidos los gastos con pagos parciales.</p></div><span class="badge ${r.pendingExpenses.length?'warn':'ok'}">${r.pendingExpenses.length} pendientes</span></div>
+   <div class="table-wrap"><table><thead><tr><th>Concepto</th><th>Proveedor</th><th>Vencimiento</th><th>Total</th><th>Abonado</th><th>Saldo</th></tr></thead><tbody>
+    ${r.pendingExpenses.map(e=>`<tr><td><strong>${esc(e.concept)}</strong><br><span class="muted">${esc(e.category)}</span></td><td>${esc(e.supplier_name||'Sin proveedor')}</td><td>${e.due_date?dateText(e.due_date):'Sin fecha'}</td><td>${money(e.amount)}</td><td>${money(e.paid_amount||0)}</td><td><strong>${money(e.balance||0)}</strong></td></tr>`).join('')||'<tr><td colspan="6"><div class="empty">No hay cuentas pendientes por pagar.</div></td></tr>'}
    </tbody></table></div>
   </section>`;
 }
 function printAccountingSummary(){
  const r=accountingSummary;if(!r)return toast('Primero genera el resumen contable.');
  const categoryMap=new Map();
- r.paidExpenses.forEach(e=>categoryMap.set(e.category,(categoryMap.get(e.category)||0)+Number(e.amount||0)));
+ r.expenseMovements.forEach(e=>categoryMap.set(e.category||'Otros',(categoryMap.get(e.category||'Otros')||0)+Number(e.amount||0)));
  if(r.coachTotal)categoryMap.set('Pagos a entrenadores',(categoryMap.get('Pagos a entrenadores')||0)+r.coachTotal);
  const incomes=r.income.concepts.map(x=>'<tr><td>'+esc(accountingKindLabel(x.kind))+'</td><td>'+money(x.total)+'</td></tr>').join('');
  const expenses=[...categoryMap.entries()].sort((a,b)=>b[1]-a[1]).map(([k,v])=>'<tr><td>'+esc(k)+'</td><td>'+money(v)+'</td></tr>').join('');
- const pending=r.pendingExpenses.map(e=>'<tr><td>'+esc(e.concept)+'</td><td>'+esc(e.supplier_name||'Sin proveedor')+'</td><td>'+(e.due_date?dateText(e.due_date):'Sin fecha')+'</td><td>'+money(e.amount)+'</td></tr>').join('');
+ const pending=r.pendingExpenses.map(e=>'<tr><td>'+esc(e.concept)+'</td><td>'+esc(e.supplier_name||'Sin proveedor')+'</td><td>'+(e.due_date?dateText(e.due_date):'Sin fecha')+'</td><td>'+money(e.amount)+'</td><td>'+money(e.paid_amount||0)+'</td><td>'+money(e.balance||0)+'</td></tr>').join('');
  const body='<div class="head"><div><span class="label">CIERRE CONTABLE DEL PERIODO</span><h1>'+dateText(r.startDate)+' al '+dateText(r.endDate)+'</h1><div class="sub">Generado: '+dateText(accountingToday())+'</div></div><span class="status">'+(r.net>=0?'SALDO POSITIVO':'SALDO NEGATIVO')+'</span></div>'+
  '<div class="grid"><div class="cell"><span class="label">INGRESOS</span><strong>'+money(r.income.total||0)+'</strong></div><div class="cell"><span class="label">EGRESOS PAGADOS</span><strong>'+money(r.outTotal)+'</strong></div><div class="cell"><span class="label">SALDO NETO</span><strong>'+money(r.net)+'</strong></div><div class="cell"><span class="label">CUENTAS POR PAGAR</span><strong>'+money(r.pendingTotal)+'</strong></div></div>'+
  '<div class="grid" style="margin-top:18px"><div class="cell"><span class="label">INGRESOS POR CONCEPTO</span><table class="tbl"><tbody>'+incomes+'</tbody></table></div><div class="cell"><span class="label">EGRESOS PAGADOS POR CONCEPTO</span><table class="tbl"><tbody>'+expenses+'</tbody></table></div></div>'+
- '<div style="margin-top:22px"><span class="label">CUENTAS PENDIENTES</span><table class="tbl"><thead><tr><th>Concepto</th><th>Proveedor</th><th>Vence</th><th>Valor</th></tr></thead><tbody>'+pending+'</tbody></table></div>';
+ '<div style="margin-top:22px"><span class="label">CUENTAS PENDIENTES</span><table class="tbl"><thead><tr><th>Concepto</th><th>Proveedor</th><th>Vence</th><th>Total</th><th>Abonado</th><th>Saldo</th></tr></thead><tbody>'+pending+'</tbody></table></div>';
  coachPaymentPrintWindow('Cierre contable García Herreros FC',body);
 }

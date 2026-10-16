@@ -14,9 +14,13 @@ addWeekly('2014–2015',[4],'prosperidad',['carloshurtado','edgar']);
 addWeekly('2012–2013',[1,4],'beraka',['jorge','felipe']);
 addWeekly('2012–2013',[2],'prosperidad',['jorge']);
 addWeekly('2008–2011',[1,3,5],'prosperidad',['diego'],'17:30','19:00');
-const coachById=id=>CLUB.coaches.find(c=>c.id===id);
-const coachCategories=id=>[...new Set(weeklySessions.filter(s=>s.coaches.includes(id)).map(s=>s.category))];
-const sessionPay=s=>s.coaches.reduce((sum,id)=>sum+coachById(id).rate,0);
+let runtimeClub=null;
+function setRuntimeClub(data){runtimeClub=data||null}
+const runtimeCoaches=()=>runtimeClub?.coaches||CLUB.coaches;
+const runtimeSchedule=()=>runtimeClub?.schedule||weeklySessions;
+const coachById=id=>runtimeCoaches().find(c=>c.id===id)||{id,name:'Entrenador'};
+const coachCategories=id=>[...new Set(runtimeSchedule().filter(s=>s.coaches.includes(id)).map(s=>s.category))];
+const sessionPay=s=>s.coaches.reduce((sum,id)=>sum+Number(coachById(id)?.rate||0),0);
 const dateDay=date=>new Date(date+'T12:00:00Z').getUTCDay();
 const isoAdd=(date,days)=>{const d=new Date(date+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10)};
-function occurrences(start,end){if(!/^\d{4}-\d{2}-\d{2}$/.test(start)||!/^\d{4}-\d{2}-\d{2}$/.test(end)||end<start)return [];const out=[];for(let date=start,n=0;date<=end&&n<366;date=isoAdd(date,1),n++)for(const s of weeklySessions.filter(s=>s.day===dateDay(date)))out.push({...s,date,key:date+'_'+s.id});return out;}
+function occurrences(start,end){if(!/^\d{4}-\d{2}-\d{2}$/.test(start)||!/^\d{4}-\d{2}-\d{2}$/.test(end)||end<start)return [];const out=[];for(let date=start,n=0;date<=end&&n<366;date=isoAdd(date,1),n++)for(const s of runtimeSchedule().filter(s=>s.day===dateDay(date)))out.push({...s,date,key:date+'_'+s.category});return out;}

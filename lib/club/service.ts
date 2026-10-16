@@ -9,13 +9,14 @@ import { ensureReviewedAthleteImport20261013 } from './reviewed-import-20261013'
 import { payrollHandle, ensureCoachPaymentsTable } from './payroll';
 import { inventoryHandle, ensureUniformInventoryTables } from './inventory';
 import { expensesHandle, ensureExpenseTables } from './expenses';
+import { organizationHandle, ensureOrganizationTables, organizationSnapshot, coachCategoriesDynamic, sessionSpecDynamic } from './organization';
 export { HttpError } from './errors';
 export type Identity={userId?:string,email?:string,staffId?:string};
 const fail=(status:number,msg:string):never=>{throw new HttpError(status,msg)};
 const now=()=>new Date().toISOString();
 const uid=()=>crypto.randomUUID();
 export const ADMIN='admin';
-export function coachCategories(id:string){return [...new Set(weeklySessions.filter(s=>s.coaches.includes(id)).map(s=>s.category))] as string[]}
+export async function coachCategories(id:string){return coachCategoriesDynamic(id)}
 function auditStmt(actor:string,action:string,id:string){return db().prepare('INSERT INTO audit (id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)').bind(uid(),actor,action,id,now())}
 export async function member(identity:Identity){
  const database=db();
@@ -35,22 +36,23 @@ export async function member(identity:Identity){
  return row;
 }
 function requireAdmin(m:any){if(m.role!==ADMIN)fail(403,'Esta acción requiere un administrativo.');}
-function requireCategory(m:any,category:string){if(m.role!==ADMIN&&!coachCategories(m.coach_id||'').includes(category))fail(403,'No tienes asignada esta categoría.');}
+async function requireCategory(m:any,category:string){if(m.role!==ADMIN&&!(await coachCategoriesDynamic(m.coach_id||'')).includes(category))fail(403,'No tienes asignada esta categoría.');}
 function str(v:any,label:string,max=150,required=true){if(v===undefined||v===null){if(required)fail(400,'Falta '+label);return ''}if(typeof v!=='string')fail(400,'Dato inválido: '+label);const s=v.trim();if((required&&!s)||s.length>max)fail(400,'Revisa '+label);return s;}
 function date(v:any,label:string){const s=str(v,label,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(s)||Number.isNaN(Date.parse(s+'T12:00:00Z'))||new Date(s+'T12:00:00Z').toISOString().slice(0,10)!==s)fail(400,'Fecha inválida: '+label);return s;}
 function bogotaDate(){return new Intl.DateTimeFormat('en-CA',{timeZone:'America/Bogota',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())}
-function category(v:any){const c=str(v,'categoría');if(!CLUB.categories.includes(c))fail(400,'Categoría inválida');return c;}
+function category(v:any,allowed:string[]=CLUB.categories){const c=str(v,'categoría');if(!allowed.includes(c))fail(400,'Categoría inválida');return c;}
 function phone(v:any,label:string,required=true){const p=str(v,label,30,required);if(p&&(p.replace(/\D/g,'').length<7||!/^[+\d\s()-]+$/.test(p)))fail(400,'Revisa '+label);return p;}
 function email(v:any,required=false){const e=str(v,'correo',254,required).toLowerCase();if(e&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))fail(400,'Correo inválido');return e;}
-function athleteValues(b:any){const dob=date(b.dob,'nacimiento');if(dob>bogotaDate()||dob<'1990-01-01')fail(400,'Revisa la fecha de nacimiento');const consentDate=date(b.consentDate,'autorización');if(consentDate>bogotaDate())fail(400,'La autorización no puede tener una fecha futura');if(b.consent!==true)fail(400,'Registra la autorización del acudiente antes de guardar.');const docNumber=str(b.docNumber,'documento',40,false);return {name:str(b.name,'nombre',100),dob,category:category(b.category),doc_type:str(b.docType,'tipo de documento',30,false),doc_number:docNumber||null,address:str(b.address,'dirección',250,false),guardian:str(b.guardian,'acudiente',100),relationship:str(b.relationship,'parentesco',50),phone:phone(b.phone,'celular del acudiente'),email:email(b.email),emergency_name:str(b.emergencyName,'contacto de emergencia',100,false),emergency_relation:str(b.emergencyRelation,'parentesco de emergencia',50,false),emergency_phone:phone(b.emergencyPhone,'celular de emergencia',false),health_notes:str(b.healthNotes,'observaciones',1500,false),modality:'Mensual',consent:1,consent_date:consentDate};}
+function athleteValues(b:any,allowedCategories:string[]=CLUB.categories){const dob=date(b.dob,'nacimiento');if(dob>bogotaDate()||dob<'1990-01-01')fail(400,'Revisa la fecha de nacimiento');const consentDate=date(b.consentDate,'autorización');if(consentDate>bogotaDate())fail(400,'La autorización no puede tener una fecha futura');if(b.consent!==true)fail(400,'Registra la autorización del acudiente antes de guardar.');const docNumber=str(b.docNumber,'documento',40,false);return {name:str(b.name,'nombre',100),dob,category:category(b.category,allowedCategories),doc_type:str(b.docType,'tipo de documento',30,false),doc_number:docNumber||null,address:str(b.address,'dirección',250,false),guardian:str(b.guardian,'acudiente',100),relationship:str(b.relationship,'parentesco',50),phone:phone(b.phone,'celular del acudiente'),email:email(b.email),emergency_name:str(b.emergencyName,'contacto de emergencia',100,false),emergency_relation:str(b.emergencyRelation,'parentesco de emergencia',50,false),emergency_phone:phone(b.emergencyPhone,'celular de emergencia',false),health_notes:str(b.healthNotes,'observaciones',1500,false),modality:'Mensual',consent:1,consent_date:consentDate};}
 function publicAthlete(a:any,m:any){if(m.role===ADMIN)return a;const {doc_number,doc_type,address,email,consent,consent_date,created_by,...safe}=a;return safe;}
-async function athleteFor(id:string,m:any){const a:any=await db().prepare('SELECT * FROM athletes WHERE id=?').bind(id).first();if(!a)fail(404,'Deportista no encontrado');requireCategory(m,a.category);return a;}
-function sessionSpec(id:string,m:any){const split=id.indexOf('_');if(split<0)fail(400,'Sesión inválida');const d=date(id.slice(0,split),'sesión'),categoryId=id.slice(split+1);const day=new Date(d+'T12:00:00Z').getUTCDay();const s=weeklySessions.find(s=>s.category===categoryId&&s.day===day);if(!s)fail(400,'La sesión no corresponde al horario del club');if(m.role!==ADMIN&&!s.coaches.includes(m.coach_id))fail(403,'No estás asignado a esta sesión.');return {...s,date:d,id};}
+async function athleteFor(id:string,m:any){const a:any=await db().prepare('SELECT * FROM athletes WHERE id=?').bind(id).first();if(!a)fail(404,'Deportista no encontrado');await requireCategory(m,a.category);return a;}
+async function sessionSpec(id:string,m:any){return sessionSpecDynamic(id,m)}
 export async function handle(method:string,path:string[],body:any,m:any){const database=db();
  if(path[0]==='finance')return financeHandle(method,path.slice(1),body,m);
  if(path[0]==='payroll')return payrollHandle(method,path.slice(1),body,m);
  if(path[0]==='inventory')return inventoryHandle(method,path.slice(1),body,m);
  if(path[0]==='expenses')return expensesHandle(method,path.slice(1),body,m);
+ if(path[0]==='organization')return organizationHandle(method,path.slice(1),body,m);
  if(method==='GET'&&path[0]==='bootstrap'){
   await ensureReviewedAthleteImport();
   await ensureReviewedAthleteImport20261009();
@@ -58,12 +60,13 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   await ensureCoachPaymentsTable();
   await ensureUniformInventoryTables();
   await ensureExpenseTables();
+  await ensureOrganizationTables();
   try{await database.prepare('ALTER TABLE athletes ADD COLUMN internal_note TEXT').run()}catch{}
   await database.prepare("UPDATE athletes SET modality='Mensual',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),version=version+1 WHERE modality IS NULL OR trim(modality)<>'Mensual'").run();
   await ensureMonthlyCharges();
-  const result=await database.prepare('SELECT * FROM athletes ORDER BY name').all();const extraCategories=[...new Set(result.results.map((a:any)=>a.category).filter((x:any)=>x&&!CLUB.categories.includes(x)))];const categories=m.role===ADMIN?[...CLUB.categories,...extraCategories]:coachCategories(m.coach_id);const staff=m.role===ADMIN?(await database.prepare('SELECT id,name,title,role,coach_id,email,username,active,owner,(password_hash IS NOT NULL) AS has_password FROM staff ORDER BY owner DESC,role,name').all()).results:[];
+  const org=await organizationSnapshot();const result=await database.prepare('SELECT * FROM athletes ORDER BY name').all();const extraCategories=[...new Set(result.results.map((a:any)=>a.category).filter((x:any)=>x&&!org.categories.includes(x)))];const categories=m.role===ADMIN?[...org.categories,...extraCategories]:await coachCategoriesDynamic(m.coach_id||'');const staff=m.role===ADMIN?(await database.prepare('SELECT id,name,title,role,coach_id,email,username,active,owner,(password_hash IS NOT NULL) AS has_password FROM staff ORDER BY owner DESC,role,name').all()).results:[];
   const permitted=(m.role===ADMIN?result.results:result.results.filter((a:any)=>categories.includes(a.category))).map(a=>publicAthlete(a,m));
-  return {member:{id:m.id,name:m.name,title:m.title,role:m.role,coachId:m.coach_id,owner:!!m.owner},clubEmail:CLUB_EMAIL,categories,athletes:await enrichEligibility(permitted),staff,schedule:weeklySessions.filter(s=>m.role===ADMIN||s.coaches.includes(m.coach_id))};
+  return {member:{id:m.id,name:m.name,title:m.title,role:m.role,coachId:m.coach_id,owner:!!m.owner},clubEmail:CLUB_EMAIL,categories,athletes:await enrichEligibility(permitted),staff,coaches:org.coaches,schedule:org.schedule.filter((s:any)=>m.role===ADMIN||s.coaches.includes(m.coach_id)),categoryRecords:org.categoryRecords};
  }
  if(path[0]==='account'&&path[1]==='password'&&method==='PUT'){
   const current=str(body.currentPassword,'contraseña actual',128);
@@ -83,8 +86,8 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   const name=str(body.name,'nombre',100),dob=date(body.dob,'nacimiento');
   if(dob>bogotaDate()||dob<'1990-01-01')fail(400,'Revisa la fecha de nacimiento');
   const docType=str(body.docType,'tipo de documento',30,false),docNumber=str(body.docNumber,'documento',40,false);
-  const cat=str(body.category,'categoría',30);
-  if(![...CLUB.categories,'Por definir'].includes(cat))fail(400,'Categoría inválida');
+  const org=await organizationSnapshot();const cat=str(body.category,'categoría',60);
+  if(![...org.categories,'Por definir'].includes(cat))fail(400,'Categoría inválida');
   const existing:any=docNumber?await database.prepare('SELECT id FROM athletes WHERE doc_number=?').bind(docNumber).first():null;
   if(existing)return {id:existing.id,skipped:true};
   const time=now();
@@ -94,7 +97,7 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   ]);
   return {id,status:'incomplete'};
  }
- if(path[0]==='athletes'&&method==='POST'&&path.length===1){requireAdmin(m);const v=athleteValues(body);const id=str(body.requestId,'identificador',36);if(!/^[0-9a-f-]{36}$/.test(id))fail(400,'Identificador inválido');const previous:any=await database.prepare('SELECT id,created_by FROM athletes WHERE id=?').bind(id).first();if(previous){if(previous.created_by!==m.id)fail(409,'Identificador no disponible');return {id};}const time=now();const keys=Object.keys(v);await database.batch([database.prepare(`INSERT INTO athletes(id,${keys.join(',')},status,created_by,created_at,updated_at,version) VALUES (${Array(keys.length+5).fill('?').join(',')},1)`).bind(id,...Object.values(v),'active',m.id,time,time),auditStmt(m.id,'athlete_created',id)]);return {id};}
+ if(path[0]==='athletes'&&method==='POST'&&path.length===1){requireAdmin(m);const org=await organizationSnapshot();const v=athleteValues(body,org.categories);const id=str(body.requestId,'identificador',36);if(!/^[0-9a-f-]{36}$/.test(id))fail(400,'Identificador inválido');const previous:any=await database.prepare('SELECT id,created_by FROM athletes WHERE id=?').bind(id).first();if(previous){if(previous.created_by!==m.id)fail(409,'Identificador no disponible');return {id};}const time=now();const keys=Object.keys(v);await database.batch([database.prepare(`INSERT INTO athletes(id,${keys.join(',')},status,created_by,created_at,updated_at,version) VALUES (${Array(keys.length+5).fill('?').join(',')},1)`).bind(id,...Object.values(v),'active',m.id,time,time),auditStmt(m.id,'athlete_created',id)]);return {id};}
  if(path[0]==='athletes'&&path[1]&&path[2]==='note'&&method==='PUT'){
   const a:any=await athleteFor(path[1],m);
   const note=str(body.note,'nota interna',700,false);
@@ -136,7 +139,7 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   ]);
   return {id:a.id,deleted:true};
  }
- if(path[0]==='athletes'&&path[1]&&path.length===2&&method==='PUT'){requireAdmin(m);const a=await athleteFor(path[1],m);if(body.version!==a.version)fail(409,'La ficha cambió en otra sesión. Recarga antes de editar.');const v=athleteValues(body),keys=Object.keys(v),newStatus=a.status==='incomplete'?'active':a.status;const results=await database.batch([database.prepare(`UPDATE athletes SET ${keys.map(k=>k+'=?').join(',')},status=?,updated_at=?,version=version+1 WHERE id=? AND version=?`).bind(...Object.values(v),newStatus,now(),a.id,a.version),database.prepare('INSERT INTO audit(id,actor,action,entity_id,created_at) SELECT ?,?,?,?,? WHERE changes()=1').bind(uid(),m.id,a.status==='incomplete'?'athlete_completed':'athlete_updated',a.id,now())]);if(!results[0].meta.changes)fail(409,'La ficha cambió. Recarga y vuelve a intentarlo.');return {id:a.id,status:newStatus};}
+ if(path[0]==='athletes'&&path[1]&&path.length===2&&method==='PUT'){requireAdmin(m);const a=await athleteFor(path[1],m);if(body.version!==a.version)fail(409,'La ficha cambió en otra sesión. Recarga antes de editar.');const org=await organizationSnapshot();const v=athleteValues(body,org.categories),keys=Object.keys(v),newStatus=a.status==='incomplete'?'active':a.status;const results=await database.batch([database.prepare(`UPDATE athletes SET ${keys.map(k=>k+'=?').join(',')},status=?,updated_at=?,version=version+1 WHERE id=? AND version=?`).bind(...Object.values(v),newStatus,now(),a.id,a.version),database.prepare('INSERT INTO audit(id,actor,action,entity_id,created_at) SELECT ?,?,?,?,? WHERE changes()=1').bind(uid(),m.id,a.status==='incomplete'?'athlete_completed':'athlete_updated',a.id,now())]);if(!results[0].meta.changes)fail(409,'La ficha cambió. Recarga y vuelve a intentarlo.');return {id:a.id,status:newStatus};}
  if(path[0]==='athletes'&&path[1]&&path[2]==='measurements'){
   const a=await athleteFor(path[1],m);
   if(method==='GET')return {measurements:(await database.prepare('SELECT measurements.*,staff.name AS recorder FROM measurements LEFT JOIN staff ON staff.id=measurements.created_by WHERE athlete_id=? ORDER BY date DESC,created_at DESC').bind(a.id).all()).results};
@@ -144,10 +147,10 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
  }
  if(path[0]==='sessions'&&path[1]==='history'&&method==='GET'){
   const rows:any[]=(await database.prepare("SELECT sessions.*,staff.name AS updated_by_name FROM sessions LEFT JOIN staff ON staff.id=sessions.updated_by WHERE attendance_saved=1 OR status<>'programada' OR trim(notes)<>'' ORDER BY date DESC,updated_at DESC LIMIT 300").all()).results as any[];
-  const allowed=m.role===ADMIN?rows:rows.filter((r:any)=>coachCategories(m.coach_id||'').includes(r.category));
+  const coachCats=m.role===ADMIN?[]:await coachCategoriesDynamic(m.coach_id||'');const allowed=m.role===ADMIN?rows:rows.filter((r:any)=>coachCats.includes(r.category));
   return {sessions:allowed};
  }
- if(path[0]==='sessions'&&path[1]){const s=sessionSpec(path[1],m);const existing:any=await database.prepare('SELECT * FROM sessions WHERE id=?').bind(s.id).first();
+ if(path[0]==='sessions'&&path[1]){const s=await sessionSpec(path[1],m);const existing:any=await database.prepare('SELECT * FROM sessions WHERE id=?').bind(s.id).first();
   if(method==='GET')return {session:existing||{id:s.id,date:s.date,category:s.category,version:0,attendance_json:'{}',notes:'',status:'programada',attendance_saved:0}};
   if(method==='PUT'){if(body.version!==(existing?.version||0))fail(409,'Otro profesor actualizó la sesión. Recarga para ver sus cambios.');if(!['attendance','execution'].includes(body.operation))fail(400,'Operación inválida');let att=existing?.attendance_json||'{}',saved=existing?.attendance_saved||0,notes=existing?.notes||'',status=existing?.status||'programada';
    if(body.operation==='attendance'){if(!body.attendance||typeof body.attendance!=='object'||Array.isArray(body.attendance))fail(400,'Lista inválida');const ps=(await database.prepare("SELECT id FROM athletes WHERE category=? AND status='active'").bind(s.category).all()).results;const ids=ps.map((p:any)=>p.id);if(!ids.length)fail(400,'Aún no hay deportistas en esta categoría');if(Object.keys(body.attendance).length!==ids.length)fail(400,'Completa la lista actual de deportistas de esta categoría.');const normalized:any={};for(const id of ids){const entry=body.attendance[id],status=typeof entry==='string'?entry:entry?.status,note=typeof entry==='object'&&entry?str(entry.note??'','nota de asistencia',250,false):'';if(!['presente','ausente','excusado','tarde'].includes(status))fail(400,'Completa la lista actual de deportistas de esta categoría.');normalized[id]={status,note};}att=JSON.stringify(normalized);saved=1;}

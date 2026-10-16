@@ -42,17 +42,48 @@ export async function ensureExpenseTables(){
   created_at TEXT NOT NULL
  )`).run();
  try{await database.prepare('ALTER TABLE expenses ADD COLUMN paid_date TEXT').run()}catch{}
+ await database.prepare(`CREATE TABLE IF NOT EXISTS expense_payments(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  expense_id INTEGER NOT NULL,
+  request_id TEXT NOT NULL UNIQUE,
+  payment_date TEXT NOT NULL,
+  amount INTEGER NOT NULL,
+  method TEXT NOT NULL,
+  reference TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL
+ )`).run();
  await database.prepare('CREATE INDEX IF NOT EXISTS expenses_date_idx ON expenses(expense_date)').run();
  await database.prepare('CREATE INDEX IF NOT EXISTS expenses_supplier_idx ON expenses(supplier_id)').run();
+ await database.prepare('CREATE INDEX IF NOT EXISTS expense_payments_expense_idx ON expense_payments(expense_id)').run();
+ await database.prepare('CREATE INDEX IF NOT EXISTS expense_payments_date_idx ON expense_payments(payment_date)').run();
 }
 
 async function snapshot(){
  const database=db();
- const suppliers=(await database.prepare("SELECT * FROM suppliers WHERE active=1 ORDER BY name").all()).results;
+ const suppliers=(await database.prepare("SELECT * FROM suppliers WHERE active=1 ORDER BY name").all()).results as any[];
  const expenses=(await database.prepare(`SELECT e.*,s.name AS recorder
    FROM expenses e LEFT JOIN staff s ON s.id=e.created_by
-   ORDER BY e.expense_date DESC,e.id DESC LIMIT 500`).all()).results;
- return {suppliers,expenses};
+   ORDER BY e.expense_date DESC,e.id DESC LIMIT 500`).all()).results as any[];
+ const payments=(await database.prepare(`SELECT p.*,e.concept,e.category,e.supplier_name,s.name AS recorder
+   FROM expense_payments p
+   JOIN expenses e ON e.id=p.expense_id
+   LEFT JOIN staff s ON s.id=p.created_by
+   ORDER BY p.payment_date DESC,p.id DESC LIMIT 2000`).all()).results as any[];
+ const sums=new Map<number,number>(),counts=new Map<number,number>();
+ for(const p of payments){
+  const id=Number(p.expense_id);
+  sums.set(id,(sums.get(id)||0)+Number(p.amount||0));
+  counts.set(id,(counts.get(id)||0)+1);
+ }
+ const enriched=expenses.map((e:any)=>{
+  const id=Number(e.id),paymentSum=sums.get(id)||0;
+  const paidAmount=paymentSum>0?Math.min(Number(e.amount),paymentSum):(e.status==='paid'?Number(e.amount):0);
+  const balance=Math.max(0,Number(e.amount)-paidAmount);
+  const status=balance===0?'paid':paidAmount>0?'partial':'pending';
+  return {...e,status,paid_amount:paidAmount,balance,payment_count:counts.get(id)||0};
+ });
+ return {suppliers,expenses:enriched,payments};
 }
 
 export async function expensesHandle(method:string,path:string[],body:any,m:any){
@@ -79,20 +110,35 @@ export async function expensesHandle(method:string,path:string[],body:any,m:any)
 
  if(method==='POST'&&path[0]==='expenses'&&path[1]&&path[2]==='pay'){
   const id=Number(path[1]);if(!Number.isSafeInteger(id)||id<=0)fail(400,'Gasto inválido');
+  const requestId=str(body.requestId,'identificador',36);
+  if(!/^[0-9a-f-]{36}$/.test(requestId))fail(400,'Identificador inválido');
+  const prior:any=await database.prepare('SELECT id FROM expense_payments WHERE request_id=?').bind(requestId).first();
+  if(prior)return {id,...await snapshot()};
   const exp:any=await database.prepare('SELECT * FROM expenses WHERE id=?').bind(id).first();
   if(!exp)fail(404,'Gasto no encontrado');
-  if(exp.status==='paid')return {id,status:'paid',...await snapshot()};
+  const paidRow:any=await database.prepare('SELECT COALESCE(SUM(amount),0) AS total FROM expense_payments WHERE expense_id=?').bind(id).first();
+  const paidSoFar=Number(paidRow?.total||0);
+  const legacyPaid=exp.status==='paid'&&paidSoFar===0?Number(exp.amount):paidSoFar;
+  const balance=Math.max(0,Number(exp.amount)-legacyPaid);
+  if(balance<=0)fail(409,'Este gasto ya está pagado completamente.');
+  const value=amount(body.amount);
+  if(value>balance)fail(400,'El abono no puede superar el saldo pendiente de '+balance+'.');
   const methodValue=str(body.method,'medio de pago',30);
   if(!['Efectivo','Transferencia'].includes(methodValue))fail(400,'Medio de pago inválido');
   const reference=str(body.reference,'referencia',150,false);
   if(methodValue==='Transferencia'&&!reference)fail(400,'Registra la referencia de la transferencia.');
-  const paidDate=date(body.paidDate,'fecha de pago');
-  const when=now();
-  await database.batch([
-   database.prepare("UPDATE expenses SET status='paid',paid_date=?,method=?,reference=?,due_date=NULL WHERE id=?").bind(paidDate,methodValue,reference,id),
-   database.prepare("INSERT INTO audit(id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(),m.id,'expense_paid',String(id),when)
-  ]);
-  return {id,status:'paid',...await snapshot()};
+  const paymentDate=date(body.paidDate,'fecha de pago');
+  const finalPayment=value===balance,newStatus=finalPayment?'paid':'partial',when=now();
+  const statements:any[]=[
+   database.prepare('INSERT INTO expense_payments(expense_id,request_id,payment_date,amount,method,reference,created_by,created_at) VALUES (?,?,?,?,?,?,?,?)')
+    .bind(id,requestId,paymentDate,value,methodValue,reference,m.id,when),
+   database.prepare("UPDATE expenses SET status=?,paid_date=?,method=?,reference=?,due_date=? WHERE id=?")
+    .bind(newStatus,finalPayment?paymentDate:null,methodValue,reference,finalPayment?null:exp.due_date,id),
+   database.prepare("INSERT INTO audit(id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)")
+    .bind(crypto.randomUUID(),m.id,finalPayment?'expense_paid':'expense_payment_created',String(id),when)
+  ];
+  await database.batch(statements);
+  return {id,status:newStatus,...await snapshot()};
  }
 
  if(method==='POST'&&path[0]==='expenses'){
@@ -127,12 +173,17 @@ export async function expensesHandle(method:string,path:string[],body:any,m:any)
   const when=now();
   const res:any=await database.prepare(`INSERT INTO expenses(request_id,expense_date,category,concept,amount,supplier_id,supplier_name,status,method,reference,due_date,paid_date,notes,created_by,created_at)
    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(requestId,expenseDate,category,concept,value,supplierId||null,supplierName,status,method,reference,dueDate,status==='paid'?expenseDate:null,notes,m.id,when).run();
-  const id=String(res.meta?.last_row_id||'');
-  await database.prepare("INSERT INTO audit(id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(),m.id,'expense_created',id,when).run();
-  return {id:Number(id),...await snapshot()};
+  const id=Number(res.meta?.last_row_id||0);
+  const statements:any[]=[
+   database.prepare("INSERT INTO audit(id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(),m.id,'expense_created',String(id),when)
+  ];
+  if(status==='paid'){
+   statements.push(database.prepare('INSERT INTO expense_payments(expense_id,request_id,payment_date,amount,method,reference,created_by,created_at) VALUES (?,?,?,?,?,?,?,?)')
+    .bind(id,crypto.randomUUID(),expenseDate,value,method,reference,m.id,when));
+  }
+  await database.batch(statements);
+  return {id,...await snapshot()};
  }
-
-
 
  fail(404,'Ruta de gastos no encontrada');
 }

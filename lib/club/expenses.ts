@@ -108,6 +108,19 @@ export async function expensesHandle(method:string,path:string[],body:any,m:any)
   return {id,...await snapshot()};
  }
 
+ if(method==='DELETE'&&path[0]==='expenses'&&path[1]&&path.length===2){
+  const id=Number(path[1]);if(!Number.isSafeInteger(id)||id<=0)fail(400,'Gasto inválido');
+  const exp:any=await database.prepare('SELECT id FROM expenses WHERE id=?').bind(id).first();
+  if(!exp)fail(404,'Gasto no encontrado');
+  const when=now();
+  await database.batch([
+   database.prepare('DELETE FROM expense_payments WHERE expense_id=?').bind(id),
+   database.prepare('DELETE FROM expenses WHERE id=?').bind(id),
+   database.prepare("INSERT INTO audit(id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(),m.id,'expense_deleted',String(id),when)
+  ]);
+  return {id,deleted:true,...await snapshot()};
+ }
+
  if(method==='POST'&&path[0]==='expenses'&&path[1]&&path[2]==='pay'){
   const id=Number(path[1]);if(!Number.isSafeInteger(id)||id<=0)fail(400,'Gasto inválido');
   const requestId=str(body.requestId,'identificador',36);

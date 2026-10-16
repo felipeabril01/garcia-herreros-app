@@ -106,7 +106,7 @@ async function loadSessionHistory(){
   const r=await api('sessions/history');
   sessionHistory=r.sessions||[];
   if(!sessionHistoryMonth){
-   const current=accountingToday?accountingToday().slice(0,7):today().slice(0,7);
+   const current=today().slice(0,7);
    sessionHistoryMonth=sessionHistory.some(s=>s.date?.startsWith(current))?current:'';
   }
   paintSessionHistory();

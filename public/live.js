@@ -46,7 +46,12 @@ async function saveStaffPhoto(input){const file=input?.files?.[0];if(!file)retur
 async function saveStaffPhotoFile(file){const fd=new FormData();fd.append('photo',file);try{const r=await fetch('/api/staff-photo',{method:'POST',credentials:'same-origin',body:fd});const data=await r.json();if(!r.ok)throw Error(data.error||'No se pudo guardar la fotografía.');state.member.photoVersion=Date.now();render();toast('Fotografía guardada en Cloudflare R2.');}catch(e){toast(e.message||'Error al guardar fotografía.')}}
 function person(p){return `<div class="person">${athleteAvatar(p)}<div><strong>${esc(p.name)}</strong><small>${esc(p.category)}</small></div></div>`}
 function errorBox(msg){return `<div class="notice" role="alert">${esc(msg)}</div>`}
-async function api(path,method='GET',body){let res;try{res=await fetch('/api/'+path,{method,credentials:'same-origin',cache:'no-store',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined})}catch{throw Error('No hay conexión. Conserva esta ventana y vuelve a intentar guardar.')}let data;try{data=await res.json()}catch{throw Error('No se pudo confirmar la operación. Revisa la conexión e inténtalo de nuevo.')}if(!res.ok)throw Error(data.error||'No se pudo completar la operación');return data;}
+async function api(path,method='GET',body){
+ const payload=body!==undefined?body:(method==='DELETE'?{}:undefined);
+ let res;try{res=await fetch('/api/'+path,{method,credentials:'same-origin',cache:'no-store',headers:payload!==undefined?{'Content-Type':'application/json'}:{},body:payload!==undefined?JSON.stringify(payload):undefined})}catch{throw Error('No hay conexión. Conserva esta ventana y vuelve a intentar guardar.')}
+ let data;try{data=await res.json()}catch{throw Error('No se pudo confirmar la operación. Revisa la conexión e inténtalo de nuevo.')}
+ if(!res.ok)throw Error(data.error||'No se pudo completar la operación');return data;
+}
 async function uploadAthletePhoto(id,file){const fd=new FormData();fd.append('photo',file);const res=await fetch('/api/photos/'+encodeURIComponent(id),{method:'POST',credentials:'same-origin',body:fd});let data={};try{data=await res.json()}catch{}if(!res.ok)throw Error(data.error||'No se pudo guardar la foto.');return data}
 async function removeAthletePhoto(id){const res=await fetch('/api/photos/'+encodeURIComponent(id),{method:'DELETE',credentials:'same-origin'});let data={};try{data=await res.json()}catch{}if(!res.ok)throw Error(data.error||'No se pudo eliminar la foto.');return data}
 async function refresh(){state=await api('bootstrap');if(typeof setRuntimeClub==='function')setRuntimeClub({categories:state.categories,coaches:state.coaches||[],schedule:state.schedule||[]})}

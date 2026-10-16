@@ -127,6 +127,8 @@ export async function organizationHandle(method:string,path:string[],body:any,m:
   const category=clean(body.category,'categoría',60);
   if(!org.categories.includes(category))fail(400,'Categoría inválida.');
   const day=Number(body.day);if(!Number.isInteger(day)||day<0||day>6)fail(400,'Día inválido.');
+  const duplicate:any=await database.prepare('SELECT id FROM club_schedule WHERE active=1 AND category=? AND day=? LIMIT 1').bind(category,day).first();
+  if(duplicate)fail(409,'Esta categoría ya tiene un entrenamiento configurado para ese día. Edita el horario existente.');
   const start=clean(body.start,'hora de inicio',5),end=clean(body.end,'hora final',5);
   if(!/^\d{2}:\d{2}$/.test(start)||!/^\d{2}:\d{2}$/.test(end)||end<=start)fail(400,'Revisa el horario.');
   const venueName=clean(body.venueName,'cancha o lugar',100);
@@ -144,6 +146,8 @@ export async function organizationHandle(method:string,path:string[],body:any,m:
   const category=clean(body.category,'categoría',60);
   if(!org.categories.includes(category))fail(400,'Categoría inválida.');
   const day=Number(body.day);if(!Number.isInteger(day)||day<0||day>6)fail(400,'Día inválido.');
+  const duplicate:any=await database.prepare('SELECT id FROM club_schedule WHERE active=1 AND category=? AND day=? AND id<>? LIMIT 1').bind(category,day,row.id).first();
+  if(duplicate)fail(409,'Esta categoría ya tiene otro entrenamiento configurado para ese día. Edita ese horario o elige otro día.');
   const start=clean(body.start,'hora de inicio',5),end=clean(body.end,'hora final',5);
   if(!/^\d{2}:\d{2}$/.test(start)||!/^\d{2}:\d{2}$/.test(end)||end<=start)fail(400,'Revisa el horario.');
   const venueName=clean(body.venueName,'cancha o lugar',100);

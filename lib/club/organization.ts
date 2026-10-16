@@ -156,6 +156,13 @@ export async function organizationHandle(method:string,path:string[],body:any,m:
   await database.prepare("UPDATE club_schedule SET category=?,day=?,venue_key='',venue_name=?,start_time=?,end_time=?,coaches_json=?,updated_at=? WHERE id=?").bind(category,day,venueName,start,end,JSON.stringify(coaches),now(),row.id).run();
   return {id:row.id};
  }
+ if(path[0]==='schedule'&&path[1]&&method==='DELETE'){
+  const row:any=await database.prepare('SELECT id FROM club_schedule WHERE id=? AND active=1').bind(path[1]).first();
+  if(!row)fail(404,'Horario no encontrado.');
+  await database.prepare('UPDATE club_schedule SET active=0,updated_at=? WHERE id=?').bind(now(),row.id).run();
+  return {id:row.id,deleted:true};
+ }
+
 
  return fail(404,'Operación de organización no disponible.');
 }

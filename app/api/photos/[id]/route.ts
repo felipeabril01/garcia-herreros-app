@@ -13,7 +13,7 @@ async function context(id:string){
  if(!athlete)return {error:new Response('Deportista no encontrado',{status:404})};
  const staff:any=await database.prepare('SELECT id,role,coach_id,active FROM staff WHERE id=?').bind(user.id).first();
  if(!staff?.active)return {error:new Response('No autorizado',{status:401})};
- const canView=staff.role==='admin'||coachCategories(staff.coach_id||'').includes(athlete.category);
+ const canView=staff.role==='admin'||(await coachCategories(staff.coach_id||'')).includes(athlete.category);
  return canView?{user,staff,athlete,database}:{error:new Response('Sin permiso',{status:403})};
 }
 

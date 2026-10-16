@@ -97,7 +97,51 @@ async function deleteAthlete(id){
 }
 function measurementForm(id){const p=state.athletes.find(p=>p.id===id);if(!p)return;const requestId=crypto.randomUUID();showModal('Nueva medición',`<p style="margin-bottom:20px">${esc(p.name)}</p><form id="measurement-form"><div class="form-grid">${field('Fecha de medición','date',today(),'date',true,true)}<label class="field">Peso (kg)<input name="weight" id="weight" type="number" min="1" max="300" step="0.1" required oninput="calcBMI()"></label><label class="field">Estatura (cm)<input name="height" id="height" type="number" min="40" max="250" step="0.1" required oninput="calcBMI()"></label></div><div class="bmi-result"><span>IMC · kg/m²</span><strong id="bmi">—</strong></div><p class="muted" style="margin-top:12px">El valor es un indicador de seguimiento. Su interpretación en niños requiere edad y sexo; esta etapa no emite clasificaciones.</p><div id="form-error"></div><div class="form-actions"><button type="button" class="btn" onclick="profile('${id}')">Volver</button><button class="btn primary" type="submit">Guardar medición</button></div></form>`);document.querySelector('#measurement-form').onsubmit=async e=>{e.preventDefault();const submit=e.target.querySelector('[type=submit]');if(submit.disabled)return;submit.disabled=true;const b=Object.fromEntries(new FormData(e.target));try{await api('athletes/'+id+'/measurements','POST',{requestId,date:b.date,weight:Number(b.weight),height:Number(b.height)});await profile(id);toast('Medición guardada en el historial.')}catch(err){document.querySelector('#form-error').innerHTML=errorBox(err.message);submit.disabled=false}};}
 function calcBMI(){const w=Number(document.querySelector('#weight').value),h=Number(document.querySelector('#height').value);document.querySelector('#bmi').textContent=w>0&&h>=40?(w/(h/100)**2).toFixed(2):'—'}
-function agenda(){const ss=currentSchedule();return title('AGENDA DEL CLUB','Entrenamientos de la semana.',dateText(weekStart)+' al '+dateText(isoAdd(weekStart,6)),button('Semana anterior','moveWeek(-7)')+button('Semana siguiente','moveWeek(7)'))+ss.map(s=>`<section class="card"><div class="session-card"><div class="datebox"><span>${WEEKDAYS[s.day].slice(0,3).toUpperCase()}</span><strong>${s.date.slice(-2)}</strong></div><div class="session-content"><h3>${s.category}</h3><p>${s.start}–${s.end} · ${CLUB.venues[s.venue]}</p><p>${s.coaches.map(id=>coachById(id).name).join(' · ')}</p></div><div class="session-actions"><button class="btn primary" onclick="chooseSession('${s.key}')">Abrir sesión</button></div></div></section>`).join('')}
+let sessionHistory=[],sessionHistoryCategory='Todas',sessionHistoryMonth='';
+function agenda(){const ss=currentSchedule();setTimeout(loadSessionHistory,0);return title('AGENDA DEL CLUB','Entrenamientos de la semana.',dateText(weekStart)+' al '+dateText(isoAdd(weekStart,6)),button('Semana anterior','moveWeek(-7)')+button('Semana siguiente','moveWeek(7)'))+(ss.length?ss.map(s=>`<section class="card"><div class="session-card"><div class="datebox"><span>${WEEKDAYS[s.day].slice(0,3).toUpperCase()}</span><strong>${s.date.slice(-2)}</strong></div><div class="session-content"><h3>${s.category}</h3><p>${s.start}–${s.end} · ${CLUB.venues[s.venue]}</p><p>${s.coaches.map(id=>coachById(id).name).join(' · ')}</p></div><div class="session-actions"><button class="btn primary" onclick="chooseSession('${s.key}')">Abrir sesión</button></div></div></section>`).join(''):'<section class="card"><div class="empty">No hay entrenamientos configurados para esta semana.</div></section>')+`<section class="card" style="margin-top:22px"><div class="card-head"><div><h2>Historial de entrenamientos</h2><p>Sesiones con asistencia, ejecución u observaciones guardadas.</p></div></div><div id="session-history"><div class="empty">Cargando historial…</div></div></section>`}
+
+async function loadSessionHistory(){
+ const el=document.querySelector('#session-history');if(!el)return;
+ try{
+  const r=await api('sessions/history');
+  sessionHistory=r.sessions||[];
+  if(!sessionHistoryMonth){
+   const current=accountingToday?accountingToday().slice(0,7):today().slice(0,7);
+   sessionHistoryMonth=sessionHistory.some(s=>s.date?.startsWith(current))?current:'';
+  }
+  paintSessionHistory();
+ }catch(e){el.innerHTML=errorBox(e.message)}
+}
+function sessionAttendanceSummary(s){
+ let att={};try{att=JSON.parse(s.attendance_json||'{}')}catch{}
+ const values=Object.values(att).map(v=>typeof v==='string'?v:v?.status);
+ return {present:values.filter(v=>v==='presente').length,absent:values.filter(v=>v==='ausente').length,other:values.filter(v=>v&&v!=='presente'&&v!=='ausente').length,total:values.filter(Boolean).length};
+}
+function sessionStatusLabel(s){return {programada:'Programada',realizada:'Realizada',cancelada:'Cancelada'}[s]||s}
+function paintSessionHistory(){
+ const el=document.querySelector('#session-history');if(!el)return;
+ const months=[...new Set(sessionHistory.map(s=>s.date?.slice(0,7)).filter(Boolean))].sort().reverse();
+ const cats=[...new Set(sessionHistory.map(s=>s.category).filter(Boolean))].sort();
+ const filtered=sessionHistory.filter(s=>(sessionHistoryCategory==='Todas'||s.category===sessionHistoryCategory)&&(!sessionHistoryMonth||s.date?.startsWith(sessionHistoryMonth)));
+ el.innerHTML=`<div class="toolbar" style="padding:0 20px 16px">
+  <select class="filter" aria-label="Filtrar historial por categoría" onchange="sessionHistoryCategory=this.value;paintSessionHistory()"><option ${sessionHistoryCategory==='Todas'?'selected':''}>Todas</option>${cats.map(c=>`<option ${sessionHistoryCategory===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
+  <select class="filter" aria-label="Filtrar historial por mes" onchange="sessionHistoryMonth=this.value;paintSessionHistory()"><option value="" ${!sessionHistoryMonth?'selected':''}>Todos los meses</option>${months.map(m=>`<option value="${m}" ${sessionHistoryMonth===m?'selected':''}>${new Date(m+'-01T12:00:00').toLocaleDateString('es-CO',{month:'long',year:'numeric'})}</option>`).join('')}</select>
+ </div>
+ ${filtered.length?`<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Categoría</th><th>Estado</th><th>Asistencia</th><th>Observación</th><th>Detalle</th></tr></thead><tbody>${filtered.map(s=>{const a=sessionAttendanceSummary(s);return `<tr><td><strong>${dateText(s.date)}</strong></td><td>${esc(s.category)}</td><td><span class="badge ${s.status==='cancelada'?'danger':s.status==='realizada'?'ok':'blue'}">${esc(sessionStatusLabel(s.status))}</span></td><td>${s.attendance_saved?`<strong>${a.present} P</strong> · ${a.absent} A${a.other?' · '+a.other+' otros':''}`:'<span class="muted">Sin lista</span>'}</td><td>${s.notes?esc(s.notes.slice(0,90))+(s.notes.length>90?'…':''):'<span class="muted">Sin observación</span>'}</td><td><button class="btn link" onclick="openSessionHistory('${s.id}')">Ver</button></td></tr>`}).join('')}</tbody></table></div>`:'<div class="empty">No hay sesiones guardadas con estos filtros.</div>'}`;
+}
+function openSessionHistory(id){
+ const s=sessionHistory.find(x=>x.id===id);if(!s)return;
+ let att={};try{att=JSON.parse(s.attendance_json||'{}')}catch{}
+ const entries=Object.entries(att);
+ const label=v=>({presente:'Presente',ausente:'Ausente',tarde:'Llegó tarde',excusado:'Excusado'}[v]||v||'Sin registrar');
+ const rows=entries.map(([athleteId,value])=>{
+  const e=typeof value==='string'?{status:value,note:''}:value||{};
+  const p=state.athletes.find(x=>x.id===athleteId);
+  return `<tr><td><strong>${esc(p?.name||'Deportista')}</strong></td><td><span class="badge ${e.status==='presente'?'ok':e.status==='ausente'?'danger':'warn'}">${esc(label(e.status))}</span></td><td>${e.note?esc(e.note):'<span class="muted">—</span>'}</td></tr>`;
+ }).join('');
+ const a=sessionAttendanceSummary(s);
+ showModal('Entrenamiento · '+dateText(s.date),`<div class="detail-grid"><div class="detail"><small>Categoría</small>${esc(s.category)}</div><div class="detail"><small>Estado</small>${esc(sessionStatusLabel(s.status))}</div><div class="detail"><small>Asistencia</small>${s.attendance_saved?a.present+' presentes · '+a.absent+' ausentes':'Sin asistencia guardada'}</div><div class="detail"><small>Última actualización</small>${s.updated_at?new Date(s.updated_at).toLocaleString('es-CO',{timeZone:'America/Bogota'}):'—'}</div></div><div class="section-title">OBSERVACIONES</div><div class="detail">${s.notes?esc(s.notes):'<span class="muted">Sin observaciones.</span>'}</div><div class="section-title">ASISTENCIA</div>${rows?`<div class="table-wrap"><table><thead><tr><th>Deportista</th><th>Estado</th><th>Nota</th></tr></thead><tbody>${rows}</tbody></table></div>`:'<div class="empty">No hay asistencia guardada.</div>'}`);
+}
 function moveWeek(n){weekStart=isoAdd(weekStart,n);render()}
 async function chooseSession(key){chosenSession=currentSchedule().find(s=>s.key===key);if(!chosenSession)return;sessionData=null;go('asistencia');await loadSession()}
 function attendancePage(){if(!chosenSession)return title('ASISTENCIA','Elige el entrenamiento.','Cada fecha y categoría tiene su propia lista.')+`<section class="card"><div class="card-head"><h2>Sesiones de esta semana</h2><button class="btn link" onclick="go('sesiones')">Cambiar semana</button></div>${currentSchedule().map(s=>`<div class="info-row"><div><strong>${WEEKDAYS[s.day]} ${dateText(s.date)} · ${s.category}</strong><small>${s.start}–${s.end} · ${CLUB.venues[s.venue]}</small></div><button class="btn link" onclick="chooseSession('${s.key}')">Elegir</button></div>`).join('')}</section>`;

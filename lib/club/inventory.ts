@@ -107,6 +107,22 @@ export async function inventoryHandle(method:string,path:string[],body:any,m:any
   return {id:Number(res.meta?.last_row_id||0),total:quantity*unitPrice,...await snapshot()};
  }
 
+ if(method==='POST'&&path[0]==='entries'&&path[1]&&path[2]==='delete'){
+  const id=Number(path[1]);if(!Number.isSafeInteger(id)||id<=0)fail(400,'Entrada inválida');
+  const entry:any=await database.prepare("SELECT * FROM uniform_movements WHERE id=? AND kind='entry'").bind(id).first();
+  if(!entry)fail(404,'Entrada de inventario no encontrada.');
+  const stockRow:any=await database.prepare("SELECT COALESCE(SUM(CASE WHEN kind='entry' THEN quantity WHEN kind='sale' THEN -quantity ELSE 0 END),0) AS stock FROM uniform_movements WHERE item_id=?").bind(entry.item_id).first();
+  const currentStock=Number(stockRow?.stock||0),newStock=currentStock-Number(entry.quantity||0);
+  if(newStock<0)fail(409,'No puedes eliminar esta entrada porque dejaría el inventario en negativo. Elimina primero las ventas relacionadas o conserva esta entrada.');
+  const when=now();
+  await database.batch([
+   database.prepare("DELETE FROM uniform_movements WHERE id=? AND kind='entry'").bind(id),
+   database.prepare("DELETE FROM uniform_items WHERE id=? AND NOT EXISTS (SELECT 1 FROM uniform_movements WHERE item_id=?)").bind(entry.item_id,entry.item_id),
+   database.prepare("INSERT INTO audit(id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(),m.id,'uniform_stock_entry_deleted',String(id),when)
+  ]);
+  return {id,deleted:true,...await snapshot()};
+ }
+
  if(method==='POST'&&path[0]==='entries'){
   const requestId=str(body.requestId,'identificador',36);
   if(!/^[0-9a-f-]{36}$/.test(requestId))fail(400,'Identificador inválido');

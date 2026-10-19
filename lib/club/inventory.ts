@@ -69,6 +69,18 @@ export async function inventoryHandle(method:string,path:string[],body:any,m:any
 
  if(method==='GET'&&path.length===0)return snapshot();
 
+ if(method==='POST'&&path[0]==='sales'&&path[1]&&path[2]==='delete'){
+  const id=Number(path[1]);if(!Number.isSafeInteger(id)||id<=0)fail(400,'Venta inválida');
+  const sale:any=await database.prepare("SELECT * FROM uniform_movements WHERE id=? AND kind='sale'").bind(id).first();
+  if(!sale)fail(404,'Venta de uniforme no encontrada.');
+  const when=now();
+  await database.batch([
+   database.prepare("DELETE FROM uniform_movements WHERE id=? AND kind='sale'").bind(id),
+   database.prepare("INSERT INTO audit(id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(),m.id,'uniform_sale_deleted',String(id),when)
+  ]);
+  return {id,deleted:true,...await snapshot()};
+ }
+
  if(method==='POST'&&path[0]==='sales'){
   const requestId=str(body.requestId,'identificador',36);
   if(!/^[0-9a-f-]{36}$/.test(requestId))fail(400,'Identificador inválido');

@@ -390,16 +390,17 @@ function deleteExpenseRecord(id){
   </div>`);
 }
 async function executeDeleteExpense(id){
- const btn=document.querySelector('#confirm-delete-expense');if(btn)btn.disabled=true;
+ const btn=document.querySelector('#confirm-delete-expense'),el=document.querySelector('#delete-expense-error');
+ if(btn){btn.disabled=true;btn.textContent='Eliminando…'}
+ if(el)el.innerHTML='<div class="notice neutral">Procesando eliminación…</div>';
  try{
-  expenseData=await api('expenses/expenses/'+id,'DELETE');
+  expenseData=await api('expenses/expenses/'+id+'/delete','POST',{confirm:true});
   modal.close();
   paintExpenses();
   toast('Gasto y abonos asociados eliminados.');
  }catch(err){
-  const el=document.querySelector('#delete-expense-error');
   if(el)el.innerHTML=errorBox(err.message||'No se pudo eliminar el gasto.');
-  if(btn)btn.disabled=false;
+  if(btn){btn.disabled=false;btn.textContent='Eliminar definitivamente'}
  }
 }
 

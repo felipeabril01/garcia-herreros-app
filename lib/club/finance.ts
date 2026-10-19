@@ -21,12 +21,13 @@ export async function ensureMonthlyCharges(asOf=financeDate()){
   const period=y+'-'+String(mm).padStart(2,'0');if(period<first||period>last)continue;
   stmts.push(db().prepare("INSERT OR IGNORE INTO charges(id,athlete_id,kind,period,amount,source,notes,status,created_by,created_at) SELECT 'mensualidad:'||a.id||':'||?,a.id,'mensualidad',?,50000,'automatic','Mensualidad del mes calendario','active','system',? FROM billing b JOIN athletes a ON a.id=b.athlete_id WHERE b.start_month<=? AND a.modality='Mensual' AND a.status='active'").bind(period,period,now(),period));
  }
- for(let y=2027;y<=Number(asOf.slice(0,4));y++)stmts.push(db().prepare("INSERT OR IGNORE INTO charges(id,athlete_id,kind,period,amount,source,notes,status,created_by,created_at) SELECT 'inscripcion:'||a.id||':'||?,a.id,'inscripcion',?,40000,'automatic','Renovación anual','active','system',? FROM billing b JOIN athletes a ON a.id=b.athlete_id WHERE b.annual_start_year<=? AND a.status='active'").bind(String(y),String(y),now(),y));
+ for(let y=2027;y<=Number(asOf.slice(0,4));y++)stmts.push(db().prepare("INSERT OR IGNORE INTO charges(id,athlete_id,kind,period,amount,source,notes,status,created_by,created_at) SELECT 'inscripcion:'||a.id||':'||?,a.id,'inscripcion',?,40000,'automatic','Renovación anual','active','system',? FROM billing b JOIN athletes a ON a.id=b.athlete_id WHERE b.annual_start_year<=? AND a.status='active' AND a.modality<>'Beca'").bind(String(y),String(y),now(),y));
  for(let i=0;i<stmts.length;i+=40)await db().batch(stmts.slice(i,i+40));
 }
 export function eligibility(a:any,charges:any[],exceptions:any[],profile:any,asOf:string){
  if(a.status==='incomplete')return {status:'review',label:'Registro incompleto',evaluatedAt:asOf};
  if(asOf<CUTOFF+'-01')return {status:'scheduled',label:'Control desde 1 oct.',evaluatedAt:asOf};
+ if(a.modality==='Beca')return {status:'eligible',label:'Becado · habilitado',evaluatedAt:asOf};
  const overdue=charges.some(c=>c.athlete_id===a.id&&c.kind==='mensualidad'&&c.status==='active'&&c.balance>0&&asOf>=c.period+'-16');
  const exception=exceptions.find(e=>e.athlete_id===a.id&&!e.revoked_at&&e.start_date<=asOf&&e.end_date>=asOf);
  if(overdue)return exception?{status:'exception',label:'Permiso temporal',until:exception.end_date,evaluatedAt:asOf}:{status:'restricted',label:'Restringido por mensualidad',evaluatedAt:asOf};
@@ -78,7 +79,7 @@ export async function financeHandle(method:string,path:string[],body:any,m:any){
   return {startDate:start,endDate:end,total,count:payments.length,payments,concepts,methods,categories};
  }
  if(method==='POST'&&path[0]==='activate'){
-  const a=await athlete(body.athleteId);if(a.status!=='active')fail(400,'Completa la ficha del deportista antes de activar su cuenta.');const start=month(body.startMonth);if(start<CUTOFF||start>financeDate().slice(0,7)&&start!==CUTOFF)fail(400,'El inicio debe ser octubre de 2026 o un mes posterior ya iniciado.');
+  const a=await athlete(body.athleteId);if(a.modality==='Beca')fail(400,'Un deportista con beca no requiere activar cartera ni genera cobros.');if(a.status!=='active')fail(400,'Completa la ficha del deportista antes de activar su cuenta.');const start=month(body.startMonth);if(start<CUTOFF||start>financeDate().slice(0,7)&&start!==CUTOFF)fail(400,'El inicio debe ser octubre de 2026 o un mes posterior ya iniciado.');
   if(body.verified!==true)fail(400,'Confirma el mes de inicio y la revisión de saldos.');
   const current:any=await database.prepare('SELECT * FROM billing WHERE athlete_id=?').bind(a.id).first();if(current){if(current.start_month!==start)fail(409,'La cuenta ya tiene un inicio establecido; no se modificó.');return {athleteId:a.id};}
   const stmts=[database.prepare('INSERT OR IGNORE INTO billing(athlete_id,start_month,annual_start_year,created_by,created_at) VALUES (?,?,?,?,?)').bind(a.id,start,Number(start.slice(0,4))+1,m.id,now())];
@@ -88,6 +89,7 @@ export async function financeHandle(method:string,path:string[],body:any,m:any){
  }
  if(method==='POST'&&path[0]==='charges'&&path.length===1){
   const a=await athlete(body.athleteId),kind=str(body.kind,'concepto',30);let period='',value=0,source='manual',notes=typeof body.notes==='string'?body.notes.trim().slice(0,1000):'';
+  if(a.modality==='Beca')fail(400,'Un deportista con beca no genera cobros.');
   if(kind==='legacy'){period=month(body.period);if(period>=CUTOFF)fail(400,'Los saldos anteriores deben corresponder a meses anteriores a octubre de 2026');if(body.verified!==true||!notes)fail(400,'Confirma la deuda y escribe cómo se verificó');value=amount(body.amount);source='legacy';}
   else if(kind==='mensualidad'){period=month(body.period);if(period<CUTOFF)fail(400,'Registra meses anteriores como saldo verificado');if(a.modality!=='Mensual')fail(400,'El deportista no está en modalidad mensual');value=50000;}
   else if(kind==='inscripcion'){period=str(body.period,'año',4);if(!/^20\d{2}$/.test(period)||Number(period)<2026)fail(400,'Año inválido');value=40000;}

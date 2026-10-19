@@ -369,15 +369,38 @@ function expensePaymentHistory(id){
  const rows=expensePaymentRows(e);
  showModal('Pagos y abonos · '+esc(e.concept),`<div class="stats"><article class="stat"><div class="stat-top">Valor total</div><strong>${money(e.amount)}</strong></article><article class="stat"><div class="stat-top">Abonado</div><strong>${money(e.paid_amount||0)}</strong></article><article class="stat"><div class="stat-top">Saldo pendiente</div><strong>${money(e.balance||0)}</strong></article></div><div class="table-wrap" style="margin-top:18px"><table><thead><tr><th>Fecha</th><th>Valor</th><th>Medio</th><th>Referencia</th><th>Registró</th></tr></thead><tbody>${rows.map(p=>`<tr><td>${dateText(p.payment_date)}</td><td><strong>${money(p.amount)}</strong></td><td>${esc(p.method||'—')}</td><td>${esc(p.reference||'—')}</td><td>${esc(p.recorder||'—')}</td></tr>`).join('')||'<tr><td colspan="5"><div class="empty">Aún no hay abonos registrados.</div></td></tr>'}</tbody></table></div><div class="form-actions"><button class="btn" type="button" onclick="modal.close()">Cerrar</button>${Number(e.balance||0)>0?'<button class="btn primary" type="button" onclick="payExpenseForm('+e.id+')">Registrar abono</button>':''}</div>`);
 }
-async function deleteExpenseRecord(id){
+function deleteExpenseRecord(id){
  const e=(expenseData.expenses||[]).find(x=>Number(x.id)===Number(id));if(!e)return;
- const extra=Number(e.paid_amount||0)>0?' También se eliminarán todos los abonos registrados para este gasto.':'';
- if(!confirm('¿Eliminar definitivamente el gasto "'+e.concept+'" por '+money(e.amount)+'?'+extra+' Esta acción no se puede deshacer.'))return;
+ const hasPayments=Number(e.paid_amount||0)>0;
+ showModal('Eliminar gasto',`
+  <div class="notice" style="margin-bottom:16px">
+   <strong>Esta acción es definitiva.</strong><br>
+   Se eliminará el gasto <strong>${esc(e.concept)}</strong> por ${money(e.amount)}.
+   ${hasPayments?'<br>También se eliminarán todos los abonos asociados a este gasto.':''}
+  </div>
+  <div class="detail-grid">
+   <div class="detail"><small>Valor total</small>${money(e.amount)}</div>
+   <div class="detail"><small>Abonado</small>${money(e.paid_amount||0)}</div>
+   <div class="detail"><small>Saldo</small>${money(e.balance||0)}</div>
+  </div>
+  <div id="delete-expense-error"></div>
+  <div class="form-actions">
+   <button type="button" class="btn" onclick="modal.close()">Cancelar</button>
+   <button type="button" class="btn danger" id="confirm-delete-expense" onclick="executeDeleteExpense(${Number(e.id)})">Eliminar definitivamente</button>
+  </div>`);
+}
+async function executeDeleteExpense(id){
+ const btn=document.querySelector('#confirm-delete-expense');if(btn)btn.disabled=true;
  try{
   expenseData=await api('expenses/expenses/'+id,'DELETE');
+  modal.close();
   paintExpenses();
   toast('Gasto y abonos asociados eliminados.');
- }catch(err){toast(err.message||'No se pudo eliminar el gasto.')}
+ }catch(err){
+  const el=document.querySelector('#delete-expense-error');
+  if(el)el.innerHTML=errorBox(err.message||'No se pudo eliminar el gasto.');
+  if(btn)btn.disabled=false;
+ }
 }
 
 function supplierForm(){

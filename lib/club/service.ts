@@ -43,8 +43,23 @@ function bogotaDate(){return new Intl.DateTimeFormat('en-CA',{timeZone:'America/
 function category(v:any,allowed:string[]=CLUB.categories){const c=str(v,'categoría');if(!allowed.includes(c))fail(400,'Categoría inválida');return c;}
 function phone(v:any,label:string,required=true){const p=str(v,label,30,required);if(p&&(p.replace(/\D/g,'').length<7||!/^[+\d\s()-]+$/.test(p)))fail(400,'Revisa '+label);return p;}
 function email(v:any,required=false){const e=str(v,'correo',254,required).toLowerCase();if(e&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))fail(400,'Correo inválido');return e;}
-function athleteValues(b:any,allowedCategories:string[]=CLUB.categories){const dob=date(b.dob,'nacimiento');if(dob>bogotaDate()||dob<'1990-01-01')fail(400,'Revisa la fecha de nacimiento');const consentDate=date(b.consentDate,'autorización');if(consentDate>bogotaDate())fail(400,'La autorización no puede tener una fecha futura');if(b.consent!==true)fail(400,'Registra la autorización del acudiente antes de guardar.');const docNumber=str(b.docNumber,'documento',40,false);return {name:str(b.name,'nombre',100),dob,category:category(b.category,allowedCategories),doc_type:str(b.docType,'tipo de documento',30,false),doc_number:docNumber||null,address:str(b.address,'dirección',250,false),guardian:str(b.guardian,'acudiente',100),relationship:str(b.relationship,'parentesco',50),phone:phone(b.phone,'celular del acudiente'),email:email(b.email),emergency_name:str(b.emergencyName,'contacto de emergencia',100,false),emergency_relation:str(b.emergencyRelation,'parentesco de emergencia',50,false),emergency_phone:phone(b.emergencyPhone,'celular de emergencia',false),health_notes:str(b.healthNotes,'observaciones',1500,false),modality:(()=>{const v=str(b.modality,'modalidad',30);if(!['Mensual','Por práctica','Beca'].includes(v))fail(400,'Modalidad inválida');return v;})(),consent:1,consent_date:consentDate};}
-function publicAthlete(a:any,m:any){if(m.role===ADMIN)return a;const {doc_number,doc_type,address,email,consent,consent_date,created_by,...safe}=a;return safe;}
+function athleteValues(b:any,allowedCategories:string[]=CLUB.categories){const dob=date(b.dob,'nacimiento');if(dob>bogotaDate()||dob<'1990-01-01')fail(400,'Revisa la fecha de nacimiento');const consentDate=date(b.consentDate,'autorización');if(consentDate>bogotaDate())fail(400,'La autorización no puede tener una fecha futura');if(b.consent!==true)fail(400,'Registra la autorización del acudiente antes de guardar.');const docNumber=str(b.docNumber,'documento',40,false);return {name:str(b.name,'nombre',100),dob,category:category(b.category,allowedCategories),doc_type:str(b.docType,'tipo de documento',30,false),doc_number:docNumber||null,address:str(b.address,'dirección',250,false),guardian:str(b.guardian,'acudiente',100),relationship:str(b.relationship,'parentesco',50),phone:phone(b.phone,'celular del acudiente'),email:email(b.email,true),emergency_name:str(b.emergencyName,'contacto de emergencia',100,false),emergency_relation:str(b.emergencyRelation,'parentesco de emergencia',50,false),emergency_phone:phone(b.emergencyPhone,'celular de emergencia',false),health_notes:str(b.healthNotes,'observaciones',1500,false),modality:(()=>{const v=str(b.modality,'modalidad',30);if(!['Mensual','Por práctica','Beca'].includes(v))fail(400,'Modalidad inválida');return v;})(),consent:1,consent_date:consentDate};}
+function registrationNeeds(a:any){
+ const needs:string[]=[];
+ if(!String(a.guardian||'').trim())needs.push('nombre del acudiente');
+ if(!String(a.relationship||'').trim())needs.push('parentesco');
+ if(!String(a.phone||'').trim())needs.push('celular del acudiente');
+ if(!String(a.email||'').trim())needs.push('correo electrónico');
+ if(!String(a.modality||'').trim())needs.push('modalidad');
+ if(!a.consent||!String(a.consent_date||'').trim())needs.push('autorización del acudiente');
+ return needs;
+}
+function publicAthlete(a:any,m:any){
+ const registration_missing=registrationNeeds(a);
+ if(m.role===ADMIN)return {...a,registration_missing};
+ const {doc_number,doc_type,address,email,consent,consent_date,created_by,...safe}=a;
+ return {...safe,registration_missing};
+}
 async function athleteFor(id:string,m:any){const a:any=await db().prepare('SELECT * FROM athletes WHERE id=?').bind(id).first();if(!a)fail(404,'Deportista no encontrado');await requireCategory(m,a.category);return a;}
 async function sessionSpec(id:string,m:any){return sessionSpecDynamic(id,m)}
 export async function handle(method:string,path:string[],body:any,m:any){const database=db();

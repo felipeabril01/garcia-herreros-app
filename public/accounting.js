@@ -396,12 +396,10 @@ function openExpenseDeleteModal(e){
   <div id="delete-expense-error"></div>
   <div class="form-actions">
    <button type="button" class="btn" id="cancel-delete-expense">Cancelar</button>
-   <button type="button" class="btn danger" id="confirm-delete-expense">Eliminar definitivamente</button>
+   <button type="button" class="btn danger" id="confirm-delete-expense" data-expense-id="${Number(e.id)}">Eliminar definitivamente</button>
   </div>`);
  const cancel=document.querySelector('#cancel-delete-expense');
- const confirmBtn=document.querySelector('#confirm-delete-expense');
  if(cancel)cancel.addEventListener('click',()=>modal.close());
- if(confirmBtn)confirmBtn.addEventListener('click',()=>executeDeleteExpense(id));
 }
 async function executeDeleteExpense(id){
  const btn=document.querySelector('#confirm-delete-expense'),el=document.querySelector('#delete-expense-error');
@@ -569,4 +567,17 @@ function printAccountingSummary(){
  '<div class="grid" style="margin-top:18px"><div class="cell"><span class="label">INGRESOS POR CONCEPTO</span><table class="tbl"><tbody>'+incomes+'</tbody></table></div><div class="cell"><span class="label">EGRESOS PAGADOS POR CONCEPTO</span><table class="tbl"><tbody>'+expenses+'</tbody></table></div></div>'+
  '<div style="margin-top:22px"><span class="label">CUENTAS PENDIENTES</span><table class="tbl"><thead><tr><th>Concepto</th><th>Proveedor</th><th>Vence</th><th>Total</th><th>Abonado</th><th>Saldo</th></tr></thead><tbody>'+pending+'</tbody></table></div>';
  coachPaymentPrintWindow('Cierre contable García Herreros FC',body);
+}
+
+// Confirmation is delegated at document level because some browsers can lose a normal
+// click after the modal opens or when the pointer moves slightly over the button.
+if(!window.__expenseDeletePointerBound){
+ window.__expenseDeletePointerBound=true;
+ document.addEventListener('pointerdown',ev=>{
+  const btn=ev.target?.closest?.('#confirm-delete-expense');
+  if(!btn||btn.disabled)return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  executeDeleteExpense(Number(btn.dataset.expenseId));
+ },true);
 }

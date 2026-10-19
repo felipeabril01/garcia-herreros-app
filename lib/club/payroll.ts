@@ -69,6 +69,19 @@ export async function payrollHandle(method:string,path:string[],body:any,m:any){
   return {id:Number(id)};
  }
 
+ if(method==='POST'&&path[0]&&path[1]==='delete'){
+  if(m.role!=='admin')fail(403,'Solo administración puede eliminar pagos a entrenadores.');
+  const id=Number(path[0]);if(!Number.isSafeInteger(id)||id<=0)fail(400,'Pago inválido');
+  const p:any=await database.prepare('SELECT * FROM coach_payments WHERE id=?').bind(id).first();
+  if(!p)fail(404,'Pago no encontrado');
+  const when=now();
+  await database.batch([
+   database.prepare('DELETE FROM coach_payments WHERE id=?').bind(id),
+   database.prepare("INSERT INTO audit(id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(),m.id,'coach_payment_deleted',String(id),when)
+  ]);
+  return {id,deleted:true};
+ }
+
  if(method==='POST'&&path[0]&&path[1]==='confirm'){
   const id=Number(path[0]);if(!Number.isSafeInteger(id)||id<=0)fail(400,'Pago inválido');
   const p:any=await database.prepare('SELECT * FROM coach_payments WHERE id=?').bind(id).first();if(!p)fail(404,'Pago no encontrado');

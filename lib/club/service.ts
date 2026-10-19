@@ -120,6 +120,36 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   ]);
   return {id:a.id,status};
  }
+ if(path[0]==='athletes'&&path[1]&&path[2]==='advanced-delete'&&method==='POST'){
+  if(!m.owner)fail(403,'Solo el responsable principal puede usar la eliminación avanzada.');
+  const a:any=await athleteFor(path[1],m);
+  if(body?.confirmText!=='ELIMINAR DEFINITIVAMENTE')fail(400,'Confirmación inválida.');
+  const rows:any[]=(await database.prepare('SELECT id,attendance_json FROM sessions WHERE attendance_json LIKE ?').bind('%'+a.id+'%').all()).results as any[];
+  const updates:any[]=[];
+  for(const row of rows){
+   try{
+    const att=JSON.parse(row.attendance_json||'{}');
+    if(Object.prototype.hasOwnProperty.call(att,a.id)){
+     delete att[a.id];
+     updates.push(database.prepare('UPDATE sessions SET attendance_json=?,version=version+1 WHERE id=?').bind(JSON.stringify(att),row.id));
+    }
+   }catch{}
+  }
+  for(let i=0;i<updates.length;i+=40)await database.batch(updates.slice(i,i+40));
+  await database.batch([
+   database.prepare('DELETE FROM allocations WHERE payment_id IN (SELECT id FROM payments WHERE athlete_id=?)').bind(a.id),
+   database.prepare('DELETE FROM payments WHERE athlete_id=?').bind(a.id),
+   database.prepare('DELETE FROM exceptions WHERE athlete_id=?').bind(a.id),
+   database.prepare('DELETE FROM billing WHERE athlete_id=?').bind(a.id),
+   database.prepare('DELETE FROM charges WHERE athlete_id=?').bind(a.id),
+   database.prepare('DELETE FROM measurements WHERE athlete_id=?').bind(a.id),
+   database.prepare("DELETE FROM uniform_movements WHERE athlete_id=? AND kind='sale'").bind(a.id),
+   database.prepare('DELETE FROM athletes WHERE id=?').bind(a.id),
+   auditStmt(m.id,'athlete_advanced_deleted',a.id)
+  ]);
+  return {id:a.id,deleted:true};
+ }
+
  if(path[0]==='athletes'&&path[1]&&path.length===2&&method==='DELETE'){
   requireAdmin(m);
   const a:any=await athleteFor(path[1],m);

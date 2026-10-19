@@ -78,7 +78,7 @@ function paintAccountingReport(){
  </div>
  <section class="card"><div class="card-head"><div><h2>Detalle de ingresos</h2><p>${dateText(r.startDate)} al ${dateText(r.endDate)}</p></div><span class="badge ok">${r.count} movimientos</span></div>
   <div class="table-wrap"><table class="roster-table"><thead><tr><th>Fecha</th><th>Deportista</th><th>Concepto</th><th>Medio</th><th>Valor</th><th>Comprobante</th></tr></thead><tbody>
-  ${r.payments.map(p=>`<tr><td>${dateText(p.paid_date)}</td><td><strong>${esc(p.athlete_name)}</strong><br><span class="muted">${esc(p.category||'')}</span></td><td>${esc(p.concepts||'Pago')}</td><td>${esc(p.method)}</td><td><strong>${money(p.amount)}</strong></td><td>${p.source==='uniform'?'<span class="muted">Venta de uniforme</span>':'<button class="btn link" onclick="receiptView('+p.id+')">Ver '+p.id+'</button>'}</td></tr>`).join('')}
+  ${r.payments.map(p=>`<tr><td>${dateText(p.paid_date)}</td><td><strong>${esc(p.athlete_name)}</strong><br><span class="muted">${esc(p.category||'')}</span></td><td>${esc(p.concepts||'Pago')}</td><td>${esc(p.method)}</td><td><strong>${money(p.amount)}</strong></td><td>${p.source==='uniform'?'<button type="button" class="btn link" onclick="confirmUniformSaleDelete('+p.id+',true)">Eliminar venta</button>':'<button class="btn link" onclick="receiptView('+p.id+')">Ver '+p.id+'</button>'}</td></tr>`).join('')}
   </tbody></table></div>
   ${!r.payments.length?'<div class="empty">No hay pagos confirmados para estas fechas.</div>':''}
  </section>`;
@@ -244,8 +244,8 @@ function paintUniformInventory(){
  </section>
  <section class="card">
   <div class="card-head"><div><h2>Últimas ventas</h2><p>Ventas que ya descontaron inventario.</p></div></div>
-  <div class="table-wrap"><table class="roster-table"><thead><tr><th>Fecha</th><th>Uniforme</th><th>Deportista</th><th>Cant.</th><th>Total</th><th>Medio</th></tr></thead><tbody>
-   ${moves.filter(m=>m.kind==='sale').map(m=>`<tr><td>${dateText(m.movement_date)}</td><td><strong>${esc(m.name)}</strong><br><span class="muted">Talla ${esc(m.size)}</span></td><td>${esc(m.athlete_name||'')}</td><td>${m.quantity}</td><td><strong>${money(Number(m.quantity)*Number(m.unit_price||0))}</strong></td><td>${esc(m.method||'')}${m.reference?'<br><span class="muted">Ref. '+esc(m.reference)+'</span>':''}</td></tr>`).join('')||'<tr><td colspan="6"><div class="empty">Aún no hay ventas registradas.</div></td></tr>'}
+  <div class="table-wrap"><table class="roster-table"><thead><tr><th>Fecha</th><th>Uniforme</th><th>Deportista</th><th>Cant.</th><th>Total</th><th>Medio</th><th></th></tr></thead><tbody>
+   ${moves.filter(m=>m.kind==='sale').map(m=>`<tr><td>${dateText(m.movement_date)}</td><td><strong>${esc(m.name)}</strong><br><span class="muted">Talla ${esc(m.size)}</span></td><td>${esc(m.athlete_name||'')}</td><td>${m.quantity}</td><td><strong>${money(Number(m.quantity)*Number(m.unit_price||0))}</strong></td><td>${esc(m.method||'')}${m.reference?'<br><span class="muted">Ref. '+esc(m.reference)+'</span>':''}</td><td><button type="button" class="btn link" onclick="confirmUniformSaleDelete(${Number(m.id)})">Eliminar</button></td></tr>`).join('')||'<tr><td colspan="7"><div class="empty">Aún no hay ventas registradas.</div></td></tr>'}
   </tbody></table></div>
  </section>`;
 }
@@ -317,6 +317,34 @@ function filterUniformAthletes(query){
  if(firstVisible)select.value=firstVisible.value;
 }
 
+
+function confirmUniformSaleDelete(id,fromIncome=false){
+ const sale=(uniformInventory.movements||[]).find(m=>Number(m.id)===Number(id)&&m.kind==='sale');
+ const incomeSale=accountingReport?.payments?.find?.(p=>p.source==='uniform'&&Number(p.id)===Number(id));
+ const label=sale?((sale.name||'Uniforme')+' · Talla '+(sale.size||'')):incomeSale?.concepts||'Venta de uniforme';
+ const total=sale?Number(sale.quantity||0)*Number(sale.unit_price||0):Number(incomeSale?.amount||0);
+ showModal('Eliminar venta de uniforme',`
+  <div class="notice" style="margin-bottom:16px"><strong>Esta acción es definitiva.</strong><br>Se eliminará <strong>${esc(label)}</strong>${total?' por '+money(total):''}. La unidad vendida volverá automáticamente al inventario y el ingreso desaparecerá de los reportes.</div>
+  <div id="uniform-delete-error"></div>
+  <div class="form-actions"><button type="button" class="btn" id="cancel-uniform-delete">Cancelar</button><button type="button" class="btn danger" id="confirm-uniform-delete">Eliminar definitivamente</button></div>`);
+ const cancel=document.querySelector('#cancel-uniform-delete'),confirmBtn=document.querySelector('#confirm-uniform-delete');
+ if(cancel)cancel.addEventListener('click',()=>modal.close());
+ if(confirmBtn)confirmBtn.addEventListener('click',()=>executeUniformSaleDelete(id,fromIncome));
+}
+async function executeUniformSaleDelete(id,fromIncome=false){
+ const btn=document.querySelector('#confirm-uniform-delete'),el=document.querySelector('#uniform-delete-error');
+ if(btn){btn.disabled=true;btn.textContent='Eliminando…'}
+ try{
+  uniformInventory=await api('inventory/sales/'+id+'/delete','POST',{confirm:true});
+  modal.close();
+  if(accountingSection==='uniforms')paintUniformInventory();
+  if(fromIncome||accountingSection==='income')await loadAccountingReport();
+  toast('Venta eliminada. El inventario fue restaurado.');
+ }catch(err){
+  if(el)el.innerHTML=errorBox(err.message||'No se pudo eliminar la venta.');
+  if(btn){btn.disabled=false;btn.textContent='Eliminar definitivamente'}
+ }
+}
 
 let expenseData={suppliers:[],expenses:[]};
 async function loadExpenses(){

@@ -354,7 +354,7 @@ function paintExpenses(){
  <section class="card">
   <div class="card-head"><div><h2>Movimientos de gastos</h2><p>Consulta el valor total, lo abonado y el saldo de cada obligación.</p></div></div>
   <div class="table-wrap"><table class="roster-table"><thead><tr><th>Fecha</th><th>Concepto</th><th>Total</th><th>Abonado</th><th>Saldo</th><th>Estado</th><th>Vence</th><th></th></tr></thead><tbody>
-   ${expenses.map(e=>`<tr><td>${dateText(e.expense_date)}</td><td><strong>${esc(e.concept)}</strong><br><span class="muted">${esc(e.category)} · ${esc(e.supplier_name||'Sin proveedor')}</span>${e.notes?'<br><span class="muted">'+esc(e.notes)+'</span>':''}</td><td><strong>${money(e.amount)}</strong></td><td><strong>${money(e.paid_amount||0)}</strong></td><td><strong>${money(e.balance||0)}</strong></td><td>${expenseStatus(e)}</td><td>${Number(e.balance||0)>0?(e.due_date?dateText(e.due_date):'Sin fecha'):'—'}</td><td><div class="access-actions">${Number(e.balance||0)>0?'<button class="access-action-btn" onclick="payExpenseForm('+e.id+')">Registrar abono</button>':''}${Number(e.paid_amount||0)>0?'<button class="access-action-btn secondary" onclick="expensePaymentHistory('+e.id+')">Ver pagos</button>':''}<button class="access-action-btn secondary" onclick="deleteExpenseRecord('+e.id+')">Eliminar</button></div></td></tr>`).join('')||'<tr><td colspan="8"><div class="empty">Aún no hay gastos registrados.</div></td></tr>'}
+   ${expenses.map(e=>`<tr><td>${dateText(e.expense_date)}</td><td><strong>${esc(e.concept)}</strong><br><span class="muted">${esc(e.category)} · ${esc(e.supplier_name||'Sin proveedor')}</span>${e.notes?'<br><span class="muted">'+esc(e.notes)+'</span>':''}</td><td><strong>${money(e.amount)}</strong></td><td><strong>${money(e.paid_amount||0)}</strong></td><td><strong>${money(e.balance||0)}</strong></td><td>${expenseStatus(e)}</td><td>${Number(e.balance||0)>0?(e.due_date?dateText(e.due_date):'Sin fecha'):'—'}</td><td><div class="access-actions">${Number(e.balance||0)>0?'<button class="access-action-btn" onclick="payExpenseForm('+e.id+')">Registrar abono</button>':''}${Number(e.paid_amount||0)>0?'<button class="access-action-btn secondary" onclick="expensePaymentHistory('+e.id+')">Ver pagos</button>':''}<button type="button" class="access-action-btn secondary" data-delete-expense="'+e.id+'">Eliminar</button></div></td></tr>`).join('')||'<tr><td colspan="8"><div class="empty">Aún no hay gastos registrados.</div></td></tr>'}
   </tbody></table></div>
  </section>
  <section class="card">
@@ -363,14 +363,21 @@ function paintExpenses(){
    ${suppliers.map(s=>`<tr><td><strong>${esc(s.name)}</strong></td><td>${esc(s.document||'—')}</td><td>${esc(s.phone||'—')}</td><td>${esc(s.email||'—')}</td><td>${esc(s.notes||'—')}</td></tr>`).join('')||'<tr><td colspan="5"><div class="empty">Aún no hay proveedores registrados.</div></td></tr>'}
   </tbody></table></div>
  </section>`;
+ el.querySelectorAll('[data-delete-expense]').forEach(btn=>{
+  btn.addEventListener('click',ev=>{
+   ev.preventDefault();
+   ev.stopPropagation();
+   openExpenseDeleteModal(Number(btn.dataset.deleteExpense));
+  });
+ });
 }
 function expensePaymentHistory(id){
  const e=(expenseData.expenses||[]).find(x=>Number(x.id)===Number(id));if(!e)return;
  const rows=expensePaymentRows(e);
  showModal('Pagos y abonos · '+esc(e.concept),`<div class="stats"><article class="stat"><div class="stat-top">Valor total</div><strong>${money(e.amount)}</strong></article><article class="stat"><div class="stat-top">Abonado</div><strong>${money(e.paid_amount||0)}</strong></article><article class="stat"><div class="stat-top">Saldo pendiente</div><strong>${money(e.balance||0)}</strong></article></div><div class="table-wrap" style="margin-top:18px"><table><thead><tr><th>Fecha</th><th>Valor</th><th>Medio</th><th>Referencia</th><th>Registró</th></tr></thead><tbody>${rows.map(p=>`<tr><td>${dateText(p.payment_date)}</td><td><strong>${money(p.amount)}</strong></td><td>${esc(p.method||'—')}</td><td>${esc(p.reference||'—')}</td><td>${esc(p.recorder||'—')}</td></tr>`).join('')||'<tr><td colspan="5"><div class="empty">Aún no hay abonos registrados.</div></td></tr>'}</tbody></table></div><div class="form-actions"><button class="btn" type="button" onclick="modal.close()">Cerrar</button>${Number(e.balance||0)>0?'<button class="btn primary" type="button" onclick="payExpenseForm('+e.id+')">Registrar abono</button>':''}</div>`);
 }
-function deleteExpenseRecord(id){
- const e=(expenseData.expenses||[]).find(x=>Number(x.id)===Number(id));if(!e)return;
+function openExpenseDeleteModal(id){
+ const e=(expenseData.expenses||[]).find(x=>Number(x.id)===Number(id));if(!e){toast('No se encontró el gasto.');return}
  const hasPayments=Number(e.paid_amount||0)>0;
  showModal('Eliminar gasto',`
   <div class="notice" style="margin-bottom:16px">
@@ -385,9 +392,13 @@ function deleteExpenseRecord(id){
   </div>
   <div id="delete-expense-error"></div>
   <div class="form-actions">
-   <button type="button" class="btn" onclick="modal.close()">Cancelar</button>
-   <button type="button" class="btn danger" id="confirm-delete-expense" onclick="executeDeleteExpense(${Number(e.id)})">Eliminar definitivamente</button>
+   <button type="button" class="btn" id="cancel-delete-expense">Cancelar</button>
+   <button type="button" class="btn danger" id="confirm-delete-expense">Eliminar definitivamente</button>
   </div>`);
+ const cancel=document.querySelector('#cancel-delete-expense');
+ const confirmBtn=document.querySelector('#confirm-delete-expense');
+ if(cancel)cancel.addEventListener('click',()=>modal.close());
+ if(confirmBtn)confirmBtn.addEventListener('click',()=>executeDeleteExpense(id));
 }
 async function executeDeleteExpense(id){
  const btn=document.querySelector('#confirm-delete-expense'),el=document.querySelector('#delete-expense-error');

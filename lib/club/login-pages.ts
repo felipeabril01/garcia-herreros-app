@@ -3,7 +3,7 @@ const baseStyle=`
 :root{--blue:#124bdf;--navy:#14254b;--muted:#68758c;--line:#e5eaf2;--bg:#f4f6fa}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--navy);min-height:100vh;display:grid;place-items:center;padding:24px}
 .login{width:min(440px,100%);background:white;border:1px solid var(--line);border-radius:18px;padding:32px;box-shadow:0 25px 80px #14254b18}
-.brand{display:flex;align-items:center;gap:14px;margin-bottom:28px}.brand img{width:55px;height:72px;object-fit:contain}.brand strong{font-size:18px;display:block}.brand span{font-size:11px;letter-spacing:2px;color:var(--muted)}
+.brand{display:flex;align-items:center;gap:14px;margin-bottom:28px}.brand img{width:55px;height:72px;object-fit:contain}.brand strong{font-size:18px;display:block}.brand span{font-size:11px;letter-spacing:2px;color:var(--muted);font-weight:700}
 h1{font-size:26px;margin:0 0 8px}p{color:var(--muted);margin:0 0 22px;line-height:1.5}
 label{display:block;font-size:14px;font-weight:650;margin:15px 0 7px}input{width:100%;border:1px solid #dbe2ee;border-radius:9px;padding:12px 13px;font-size:16px;color:var(--navy)}.password-wrap{position:relative}.password-wrap input{padding-right:48px}.toggle-pass{position:absolute;right:7px;top:50%;transform:translateY(-50%);width:36px;height:36px;margin:0;padding:0;border:0;background:transparent;color:var(--muted);display:grid;place-items:center}.toggle-pass svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 button{width:100%;border:0;border-radius:9px;padding:13px 16px;margin-top:22px;background:var(--blue);color:white;font-size:15px;font-weight:700;cursor:pointer}

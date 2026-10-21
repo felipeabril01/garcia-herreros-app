@@ -44,8 +44,29 @@ function category(v:any,allowed:string[]=CLUB.categories){const c=str(v,'categor
 function phone(v:any,label:string,required=true){const p=str(v,label,30,required);if(p&&(p.replace(/\D/g,'').length<7||!/^[+\d\s()-]+$/.test(p)))fail(400,'Revisa '+label);return p;}
 function email(v:any,required=false){const e=str(v,'correo',254,required).toLowerCase();if(e&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))fail(400,'Correo inválido');return e;}
 function athleteValues(b:any,allowedCategories:string[]=CLUB.categories){const dob=date(b.dob,'nacimiento');if(dob>bogotaDate()||dob<'1990-01-01')fail(400,'Revisa la fecha de nacimiento');const consentDate=date(b.consentDate,'autorización');if(consentDate>bogotaDate())fail(400,'La autorización no puede tener una fecha futura');if(b.consent!==true)fail(400,'Registra la autorización del acudiente antes de guardar.');const docNumber=str(b.docNumber,'documento',40,false);return {name:str(b.name,'nombre',100),dob,category:category(b.category,allowedCategories),doc_type:str(b.docType,'tipo de documento',30,false),doc_number:docNumber||null,address:str(b.address,'dirección',250,false),guardian:str(b.guardian,'acudiente',100),relationship:str(b.relationship,'parentesco',50),phone:phone(b.phone,'celular del acudiente'),email:email(b.email,true),emergency_name:str(b.emergencyName,'contacto de emergencia',100,false),emergency_relation:str(b.emergencyRelation,'parentesco de emergencia',50,false),emergency_phone:phone(b.emergencyPhone,'celular de emergencia',false),health_notes:str(b.healthNotes,'observaciones',1500,false),modality:(()=>{const v=str(b.modality,'modalidad',30);if(!['Mensual','Por práctica','Beca'].includes(v))fail(400,'Modalidad inválida');return v;})(),consent:1,consent_date:consentDate};}
+function partialAthleteValues(b:any,allowedCategories:string[]=CLUB.categories){
+ const name=str(b.name,'nombre',100);
+ const cat=category(b.category,[...allowedCategories,'Por definir']);
+ const dob=b.dob?date(b.dob,'nacimiento'):'';
+ if(dob&&(dob>bogotaDate()||dob<'1990-01-01'))fail(400,'Revisa la fecha de nacimiento');
+ const docNumber=str(b.docNumber,'documento',40,false);
+ const modality=str(b.modality,'modalidad',30,false);
+ if(modality&&!['Mensual','Por práctica','Beca'].includes(modality))fail(400,'Modalidad inválida');
+ const consent=b.consent===true;
+ const consentDate=consent?date(b.consentDate,'autorización'):'';
+ if(consentDate>bogotaDate())fail(400,'La autorización no puede tener una fecha futura');
+ return {name,dob,category:cat,doc_type:str(b.docType,'tipo de documento',30,false)||null,doc_number:docNumber||null,
+  address:str(b.address,'dirección',250,false),guardian:str(b.guardian,'acudiente',100,false),
+  relationship:str(b.relationship,'parentesco',50,false),phone:phone(b.phone,'celular del acudiente',false),
+  email:email(b.email,false)||null,emergency_name:str(b.emergencyName,'contacto de emergencia',100,false),
+  emergency_relation:str(b.emergencyRelation,'parentesco de emergencia',50,false),
+  emergency_phone:phone(b.emergencyPhone,'celular de emergencia',false),
+  health_notes:str(b.healthNotes,'observaciones',1500,false),modality,consent:consent?1:0,consent_date:consentDate};
+}
 function registrationNeeds(a:any){
  const needs:string[]=[];
+ if(!String(a.dob||'').trim())needs.push('fecha de nacimiento');
+ if(a.category==='Por definir')needs.push('categoría');
  if(!String(a.guardian||'').trim())needs.push('nombre del acudiente');
  if(!String(a.relationship||'').trim())needs.push('parentesco');
  if(!String(a.phone||'').trim())needs.push('celular del acudiente');
@@ -98,19 +119,43 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   requireAdmin(m);
   const id=str(body.requestId,'identificador',36);
   if(!/^[0-9a-f-]{36}$/.test(id))fail(400,'Identificador inválido');
-  const name=str(body.name,'nombre',100),dob=date(body.dob,'nacimiento');
-  if(dob>bogotaDate()||dob<'1990-01-01')fail(400,'Revisa la fecha de nacimiento');
-  const docType=str(body.docType,'tipo de documento',30,false),docNumber=str(body.docNumber,'documento',40,false);
-  const org=await organizationSnapshot();const cat=str(body.category,'categoría',60);
-  if(![...org.categories,'Por definir'].includes(cat))fail(400,'Categoría inválida');
-  const existing:any=docNumber?await database.prepare('SELECT id FROM athletes WHERE doc_number=?').bind(docNumber).first():null;
-  if(existing)return {id:existing.id,skipped:true};
-  const time=now();
+  const previous:any=await database.prepare('SELECT id,created_by FROM athletes WHERE id=?').bind(id).first();
+  if(previous){if(previous.created_by!==m.id)fail(409,'Identificador no disponible');return {id,status:'incomplete'};}
+  const org=await organizationSnapshot();
+  const v=partialAthleteValues(body,org.categories);
+  const duplicated:any=await database.prepare("SELECT id FROM athletes WHERE lower(trim(name))=lower(?) AND category=? LIMIT 1").bind(v.name,v.category).first();
+  if(duplicated)fail(409,'Ya existe una ficha con ese nombre y categoría. Búscala antes de registrar otra.');
+  if(v.doc_number){
+   const sameDoc:any=await database.prepare('SELECT id FROM athletes WHERE doc_number=? LIMIT 1').bind(v.doc_number).first();
+   if(sameDoc)fail(409,'Ya existe una ficha con ese número de documento.');
+  }
+  const time=now(),keys=Object.keys(v);
   await database.batch([
-   database.prepare("INSERT INTO athletes(id,name,dob,category,doc_type,doc_number,address,guardian,relationship,phone,email,emergency_name,emergency_relation,emergency_phone,health_notes,modality,consent,consent_date,status,created_by,created_at,updated_at,version) VALUES (?,?,?,?,?,?, '', '', '', '', NULL, '', '', '', '', '', 0, '', 'incomplete', ?, ?, ?, 1)").bind(id,name,dob,cat,docType||null,docNumber||null,m.id,time,time),
+   database.prepare(`INSERT INTO athletes(id,${keys.join(',')},status,created_by,created_at,updated_at,version) VALUES (${Array(keys.length+5).fill('?').join(',')},1)`).bind(id,...Object.values(v),'incomplete',m.id,time,time),
    auditStmt(m.id,'athlete_preregistered',id)
   ]);
   return {id,status:'incomplete'};
+ }
+ if(path[0]==='athletes'&&path[1]&&path[2]==='preregister'&&method==='PUT'){
+  requireAdmin(m);
+  const a:any=await athleteFor(path[1],m);
+  if(a.status!=='incomplete')fail(409,'Esta ficha ya está activa o inactiva. Utiliza Editar ficha.');
+  if(body.version!==a.version)fail(409,'La ficha cambió en otra sesión. Recarga antes de editar.');
+  const org=await organizationSnapshot();
+  const v=partialAthleteValues(body,org.categories);
+  const duplicated:any=await database.prepare("SELECT id FROM athletes WHERE lower(trim(name))=lower(?) AND category=? AND id<>? LIMIT 1").bind(v.name,v.category,a.id).first();
+  if(duplicated)fail(409,'Ya existe otra ficha con ese nombre y categoría.');
+  if(v.doc_number){
+   const sameDoc:any=await database.prepare('SELECT id FROM athletes WHERE doc_number=? AND id<>? LIMIT 1').bind(v.doc_number,a.id).first();
+   if(sameDoc)fail(409,'Ya existe otra ficha con ese número de documento.');
+  }
+  const keys=Object.keys(v);
+  const r=await database.batch([
+   database.prepare(`UPDATE athletes SET ${keys.map(k=>k+'=?').join(',')},updated_at=?,version=version+1 WHERE id=? AND version=?`).bind(...Object.values(v),now(),a.id,a.version),
+   database.prepare('INSERT INTO audit(id,actor,action,entity_id,created_at) SELECT ?,?,?,?,? WHERE changes()=1').bind(uid(),m.id,'athlete_preregister_updated',a.id,now())
+  ]);
+  if(!r[0].meta.changes)fail(409,'La ficha cambió. Recarga y vuelve a intentarlo.');
+  return {id:a.id,status:'incomplete'};
  }
  if(path[0]==='athletes'&&method==='POST'&&path.length===1){requireAdmin(m);const org=await organizationSnapshot();const v=athleteValues(body,org.categories);const id=str(body.requestId,'identificador',36);if(!/^[0-9a-f-]{36}$/.test(id))fail(400,'Identificador inválido');const previous:any=await database.prepare('SELECT id,created_by FROM athletes WHERE id=?').bind(id).first();if(previous){if(previous.created_by!==m.id)fail(409,'Identificador no disponible');return {id};}const time=now();const keys=Object.keys(v);await database.batch([database.prepare(`INSERT INTO athletes(id,${keys.join(',')},status,created_by,created_at,updated_at,version) VALUES (${Array(keys.length+5).fill('?').join(',')},1)`).bind(id,...Object.values(v),'active',m.id,time,time),auditStmt(m.id,'athlete_created',id)]);return {id};}
  if(path[0]==='athletes'&&path[1]&&path[2]==='note'&&method==='PUT'){

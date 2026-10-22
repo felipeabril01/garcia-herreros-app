@@ -139,7 +139,7 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
  if(path[0]==='athletes'&&path[1]&&path[2]==='preregister'&&method==='PUT'){
   requireAdmin(m);
   const a:any=await athleteFor(path[1],m);
-  if(a.status!=='incomplete')fail(409,'Esta ficha ya está activa o inactiva. Utiliza Editar ficha.');
+  if(a.status!=='incomplete'&&registrationNeeds(a).length===0)fail(409,'La ficha ya tiene los datos requeridos. Utiliza Guardar ficha.');
   if(body.version!==a.version)fail(409,'La ficha cambió en otra sesión. Recarga antes de editar.');
   const org=await organizationSnapshot();
   const v=partialAthleteValues(body,org.categories);
@@ -152,10 +152,10 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   const keys=Object.keys(v);
   const r=await database.batch([
    database.prepare(`UPDATE athletes SET ${keys.map(k=>k+'=?').join(',')},updated_at=?,version=version+1 WHERE id=? AND version=?`).bind(...Object.values(v),now(),a.id,a.version),
-   database.prepare('INSERT INTO audit(id,actor,action,entity_id,created_at) SELECT ?,?,?,?,? WHERE changes()=1').bind(uid(),m.id,'athlete_preregister_updated',a.id,now())
+   database.prepare('INSERT INTO audit(id,actor,action,entity_id,created_at) SELECT ?,?,?,?,? WHERE changes()=1').bind(uid(),m.id,a.status==='incomplete'?'athlete_preregister_updated':'athlete_updated_with_pending_fields',a.id,now())
   ]);
   if(!r[0].meta.changes)fail(409,'La ficha cambió. Recarga y vuelve a intentarlo.');
-  return {id:a.id,status:'incomplete'};
+  return {id:a.id,status:a.status};
  }
  if(path[0]==='athletes'&&method==='POST'&&path.length===1){requireAdmin(m);const org=await organizationSnapshot();const v=athleteValues(body,org.categories);const id=str(body.requestId,'identificador',36);if(!/^[0-9a-f-]{36}$/.test(id))fail(400,'Identificador inválido');const previous:any=await database.prepare('SELECT id,created_by FROM athletes WHERE id=?').bind(id).first();if(previous){if(previous.created_by!==m.id)fail(409,'Identificador no disponible');return {id};}const time=now();const keys=Object.keys(v);await database.batch([database.prepare(`INSERT INTO athletes(id,${keys.join(',')},status,created_by,created_at,updated_at,version) VALUES (${Array(keys.length+5).fill('?').join(',')},1)`).bind(id,...Object.values(v),'active',m.id,time,time),auditStmt(m.id,'athlete_created',id)]);return {id};}
  if(path[0]==='athletes'&&path[1]&&path[2]==='note'&&method==='PUT'){

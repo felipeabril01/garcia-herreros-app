@@ -44,14 +44,15 @@ export async function ensureOrganizationTables(){
 export async function organizationSnapshot(){
  await ensureOrganizationTables();
  const database=db();
- const categories=(await database.prepare('SELECT id,name,active,sort_order FROM club_categories WHERE active=1 ORDER BY sort_order,name').all()).results as any[];
+ const categories=(await database.prepare('SELECT id,name,active,sort_order FROM club_categories ORDER BY sort_order,name').all()).results as any[];
+ const activeCategoryNames=new Set(categories.filter(c=>Number(c.active)===1).map(c=>String(c.name)));
  const schedule=(await database.prepare('SELECT * FROM club_schedule WHERE active=1 ORDER BY day,start_time,category').all()).results as any[];
  const coaches=(await database.prepare("SELECT id,name,title,role,coach_id,active FROM staff WHERE coach_id IS NOT NULL ORDER BY name").all()).results as any[];
  return {
-  categories:categories.map(c=>c.name),
+  categories:categories.filter(c=>Number(c.active)===1).map(c=>c.name),
   categoryRecords:categories,
   coaches:coaches.map(c=>({id:c.coach_id||c.id,staffId:c.id,name:c.name,title:c.title,active:!!c.active})),
-  schedule:schedule.map(s=>({id:s.id,category:s.category,day:Number(s.day),venue:s.venue_key,venueName:s.venue_name,start:s.start_time,end:s.end_time,coaches:JSON.parse(s.coaches_json||'[]')}))
+  schedule:schedule.filter(s=>activeCategoryNames.has(String(s.category))).map(s=>({id:s.id,category:s.category,day:Number(s.day),venue:s.venue_key,venueName:s.venue_name,start:s.start_time,end:s.end_time,coaches:JSON.parse(s.coaches_json||'[]')}))
  };
 }
 
@@ -89,7 +90,20 @@ export async function organizationHandle(method:string,path:string[],body:any,m:
   return {id,name};
  }
 
- if(path[0]==='categories'&&path[1]&&method==='PUT'){
+ if(path[0]==='categories'&&path[1]&&path[2]==='status'&&path.length===3&&method==='PUT'){
+  const record:any=await database.prepare('SELECT id,name,active FROM club_categories WHERE id=?').bind(path[1]).first();
+  if(!record)fail(404,'Categoría no encontrada.');
+  if(typeof body?.active!=='boolean')fail(400,'Indica si la categoría estará activa o archivada.');
+  const active=body.active?1:0;
+  if(Number(record.active)===active)return {id:record.id,name:record.name,active:!!active};
+  const t=now();
+  await database.batch([
+   database.prepare('UPDATE club_categories SET active=?,updated_at=? WHERE id=?').bind(active,t,record.id),
+   database.prepare('INSERT INTO audit(id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)').bind(crypto.randomUUID(),m.id,active?'category_reactivated':'category_archived',record.id,t)
+  ]);
+  return {id:record.id,name:record.name,active:!!active};
+ }
+ if(path[0]==='categories'&&path[1]&&path.length===2&&method==='PUT'){
   const row:any=await database.prepare('SELECT * FROM club_categories WHERE id=?').bind(path[1]).first();
   if(!row)fail(404,'Categoría no encontrada.');
   const name=clean(body.name,'nombre de categoría',60);

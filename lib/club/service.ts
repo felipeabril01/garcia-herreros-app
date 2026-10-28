@@ -139,7 +139,7 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   try{await database.prepare('ALTER TABLE athletes ADD COLUMN internal_note TEXT').run()}catch{}
   await database.prepare("UPDATE athletes SET modality='Mensual',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),version=version+1 WHERE modality IS NULL OR trim(modality)=''").run();
   await ensureMonthlyCharges();
-  const org=await organizationSnapshot();const result=await database.prepare('SELECT * FROM athletes ORDER BY name').all();const extraCategories=[...new Set(result.results.map((a:any)=>a.category).filter((x:any)=>x&&!org.categories.includes(x)))];const categories=m.role===ADMIN?[...org.categories,...extraCategories]:await coachCategoriesDynamic(m.coach_id||'');const staff=m.role===ADMIN?(await database.prepare('SELECT id,name,title,role,coach_id,email,username,active,owner,(password_hash IS NOT NULL) AS has_password FROM staff ORDER BY owner DESC,role,name').all()).results:[];
+  const org=await organizationSnapshot();const result=await database.prepare('SELECT * FROM athletes ORDER BY name').all();const categories=m.role===ADMIN?org.categories:await coachCategoriesDynamic(m.coach_id||'');const staff=m.role===ADMIN?(await database.prepare('SELECT id,name,title,role,coach_id,email,username,active,owner,(password_hash IS NOT NULL) AS has_password FROM staff ORDER BY owner DESC,role,name').all()).results:[];
   const permitted=(m.role===ADMIN?result.results:result.results.filter((a:any)=>categories.includes(a.category))).map(a=>publicAthlete(a,m));
   return {member:{id:m.id,name:m.name,title:m.title,role:m.role,coachId:m.coach_id,owner:!!m.owner},clubEmail:CLUB_EMAIL,categories,athletes:await enrichEligibility(permitted),staff,coaches:org.coaches,schedule:org.schedule.filter((s:any)=>m.role===ADMIN||s.coaches.includes(m.coach_id)),categoryRecords:org.categoryRecords};
  }
@@ -181,7 +181,7 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   if(a.status!=='incomplete'&&registrationNeeds(a).length===0)fail(409,'La ficha ya tiene los datos requeridos. Utiliza Guardar ficha.');
   if(body.version!==a.version)fail(409,'La ficha cambió en otra sesión. Recarga antes de editar.');
   const org=await organizationSnapshot();
-  const v=partialAthleteValues(body,org.categories);
+  const v=partialAthleteValues(body,[...org.categories,a.category]);
   const duplicated:any=await database.prepare("SELECT id FROM athletes WHERE lower(trim(name))=lower(?) AND category=? AND id<>? LIMIT 1").bind(v.name,v.category,a.id).first();
   if(duplicated)fail(409,'Ya existe otra ficha con ese nombre y categoría.');
   if(v.doc_number){
@@ -268,7 +268,7 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   ]);
   return {id:a.id,deleted:true};
  }
- if(path[0]==='athletes'&&path[1]&&path.length===2&&method==='PUT'){requireAdmin(m);const a=await athleteFor(path[1],m);if(body.version!==a.version)fail(409,'La ficha cambió en otra sesión. Recarga antes de editar.');const org=await organizationSnapshot();const v=athleteValues(body,org.categories),keys=Object.keys(v),newStatus=a.status==='incomplete'?'active':a.status;const results=await database.batch([database.prepare(`UPDATE athletes SET ${keys.map(k=>k+'=?').join(',')},status=?,updated_at=?,version=version+1 WHERE id=? AND version=?`).bind(...Object.values(v),newStatus,now(),a.id,a.version),database.prepare('INSERT INTO audit(id,actor,action,entity_id,created_at) SELECT ?,?,?,?,? WHERE changes()=1').bind(uid(),m.id,a.status==='incomplete'?'athlete_completed':'athlete_updated',a.id,now())]);if(!results[0].meta.changes)fail(409,'La ficha cambió. Recarga y vuelve a intentarlo.');return {id:a.id,status:newStatus};}
+ if(path[0]==='athletes'&&path[1]&&path.length===2&&method==='PUT'){requireAdmin(m);const a=await athleteFor(path[1],m);if(body.version!==a.version)fail(409,'La ficha cambió en otra sesión. Recarga antes de editar.');const org=await organizationSnapshot();const v=athleteValues(body,[...org.categories,a.category]),keys=Object.keys(v),newStatus=a.status==='incomplete'?'active':a.status;const results=await database.batch([database.prepare(`UPDATE athletes SET ${keys.map(k=>k+'=?').join(',')},status=?,updated_at=?,version=version+1 WHERE id=? AND version=?`).bind(...Object.values(v),newStatus,now(),a.id,a.version),database.prepare('INSERT INTO audit(id,actor,action,entity_id,created_at) SELECT ?,?,?,?,? WHERE changes()=1').bind(uid(),m.id,a.status==='incomplete'?'athlete_completed':'athlete_updated',a.id,now())]);if(!results[0].meta.changes)fail(409,'La ficha cambió. Recarga y vuelve a intentarlo.');return {id:a.id,status:newStatus};}
  if(path[0]==='athletes'&&path[1]&&path[2]==='measurements'){
   const a=await athleteFor(path[1],m);
   if(method==='GET')return {measurements:(await database.prepare('SELECT measurements.*,staff.name AS recorder FROM measurements LEFT JOIN staff ON staff.id=measurements.created_by WHERE athlete_id=? ORDER BY date DESC,created_at DESC').bind(a.id).all()).results};

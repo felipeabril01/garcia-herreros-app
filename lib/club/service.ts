@@ -95,7 +95,7 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   const current=new Date(),today=bogotaDate();
   const hour=Number(new Intl.DateTimeFormat('en-GB',{timeZone:'America/Bogota',hour:'2-digit',hourCycle:'h23'}).format(current));
   const moveDay=(d:string,delta:number)=>{const dt=new Date(d+'T12:00:00Z');dt.setUTCDate(dt.getUTCDate()+delta);return dt.toISOString().slice(0,10)};
-  const start=moveDay(today,-6),firstTracked='2026-10-28';
+  const start=moveDay(today,-6);
   const [org,sessionsResult,auditResult,athleteResult]=await Promise.all([
    organizationSnapshot(),
    database.prepare('SELECT id,date,status,attendance_saved FROM sessions WHERE date>=? AND date<=?').bind(start,today).all(),
@@ -109,7 +109,7 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   const alerts:any[]=[];
   for(let offset=6;offset>=0;offset--){
    const date=moveDay(today,-offset);
-   if(date<firstTracked||(date===today&&hour<21))continue;
+   if(date===today&&hour<21)continue;
    const weekday=new Date(date+'T12:00:00Z').getUTCDay();
    for(const s of org.schedule){
     if(s.day!==weekday||!athleteCounts.get(s.category))continue;

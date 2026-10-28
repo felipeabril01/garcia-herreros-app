@@ -12,6 +12,7 @@ function date(v:any){const s=str(v,'fecha',10);if(!/^\d{4}-\d{2}-\d{2}$/.test(s)
 function amount(v:any){if(!Number.isSafeInteger(v)||v<=0||v>100000000)fail(400,'Ingresa un valor entero positivo en pesos');return v}
 function log(m:any,action:string,id:string){return db().prepare('INSERT INTO audit(id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)').bind(crypto.randomUUID(),m.id,action,id,now())}
 async function athlete(id:any){const a:any=await db().prepare('SELECT * FROM athletes WHERE id=?').bind(str(id,'deportista',100)).first();if(!a)fail(404,'Deportista no encontrado');return a}
+async function requireActiveCategory(category:string){const c:any=await db().prepare('SELECT active FROM club_categories WHERE name=?').bind(category).first();if(!c||Number(c.active)!==1)fail(409,'La categoría está archivada. No se pueden generar nuevos cobros ni activar cartera.');}
 export const balancesSQL=`SELECT c.*,c.amount-COALESCE((SELECT SUM(al.amount) FROM allocations al JOIN payments p ON p.id=al.payment_id WHERE al.charge_id=c.id AND p.status='confirmed'),0) AS balance FROM charges c`;
 const chargeStmt=(a:string,kind:string,period:string,value:number,source:string,actor:string,notes='')=>db().prepare("INSERT OR IGNORE INTO charges(id,athlete_id,kind,period,amount,source,notes,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,'active',?,?)").bind(kind+':'+a+':'+period,a,kind,period,value,source,notes,actor,now());
 export async function ensureMonthlyCharges(asOf=financeDate()){
@@ -19,9 +20,9 @@ export async function ensureMonthlyCharges(asOf=financeDate()){
  const last=asOf.slice(0,7),first=profiles.map(p=>p.start_month).sort()[0];if(last<first)return;
  const stmts=[];for(let y=Number(first.slice(0,4));y<=Number(last.slice(0,4));y++)for(let mm=1;mm<=12;mm++){
   const period=y+'-'+String(mm).padStart(2,'0');if(period<first||period>last)continue;
-  stmts.push(db().prepare("INSERT OR IGNORE INTO charges(id,athlete_id,kind,period,amount,source,notes,status,created_by,created_at) SELECT 'mensualidad:'||a.id||':'||?,a.id,'mensualidad',?,50000,'automatic','Mensualidad del mes calendario','active','system',? FROM billing b JOIN athletes a ON a.id=b.athlete_id WHERE b.start_month<=? AND a.modality='Mensual' AND a.status='active'").bind(period,period,now(),period));
+  stmts.push(db().prepare("INSERT OR IGNORE INTO charges(id,athlete_id,kind,period,amount,source,notes,status,created_by,created_at) SELECT 'mensualidad:'||a.id||':'||?,a.id,'mensualidad',?,50000,'automatic','Mensualidad del mes calendario','active','system',? FROM billing b JOIN athletes a ON a.id=b.athlete_id WHERE b.start_month<=? AND a.modality='Mensual' AND a.status='active' AND EXISTS (SELECT 1 FROM club_categories cat WHERE cat.name=a.category AND cat.active=1)").bind(period,period,now(),period));
  }
- for(let y=2027;y<=Number(asOf.slice(0,4));y++)stmts.push(db().prepare("INSERT OR IGNORE INTO charges(id,athlete_id,kind,period,amount,source,notes,status,created_by,created_at) SELECT 'inscripcion:'||a.id||':'||?,a.id,'inscripcion',?,40000,'automatic','Renovación anual','active','system',? FROM billing b JOIN athletes a ON a.id=b.athlete_id WHERE b.annual_start_year<=? AND a.status='active' AND a.modality<>'Beca'").bind(String(y),String(y),now(),y));
+ for(let y=2027;y<=Number(asOf.slice(0,4));y++)stmts.push(db().prepare("INSERT OR IGNORE INTO charges(id,athlete_id,kind,period,amount,source,notes,status,created_by,created_at) SELECT 'inscripcion:'||a.id||':'||?,a.id,'inscripcion',?,40000,'automatic','Renovación anual','active','system',? FROM billing b JOIN athletes a ON a.id=b.athlete_id WHERE b.annual_start_year<=? AND a.status='active' AND a.modality<>'Beca' AND EXISTS (SELECT 1 FROM club_categories cat WHERE cat.name=a.category AND cat.active=1)").bind(String(y),String(y),now(),y));
  for(let i=0;i<stmts.length;i+=40)await db().batch(stmts.slice(i,i+40));
 }
 export function eligibility(a:any,charges:any[],exceptions:any[],profile:any,asOf:string){
@@ -79,7 +80,7 @@ export async function financeHandle(method:string,path:string[],body:any,m:any){
   return {startDate:start,endDate:end,total,count:payments.length,payments,concepts,methods,categories};
  }
  if(method==='POST'&&path[0]==='activate'){
-  const a=await athlete(body.athleteId);if(a.modality==='Beca')fail(400,'Un deportista con beca no requiere activar cartera ni genera cobros.');if(a.status!=='active')fail(400,'Completa la ficha del deportista antes de activar su cuenta.');const start=month(body.startMonth);if(start<CUTOFF||start>financeDate().slice(0,7)&&start!==CUTOFF)fail(400,'El inicio debe ser octubre de 2026 o un mes posterior ya iniciado.');
+  const a=await athlete(body.athleteId);await requireActiveCategory(a.category);if(a.modality==='Beca')fail(400,'Un deportista con beca no requiere activar cartera ni genera cobros.');if(a.status!=='active')fail(400,'Completa la ficha del deportista antes de activar su cuenta.');const start=month(body.startMonth);if(start<CUTOFF||start>financeDate().slice(0,7)&&start!==CUTOFF)fail(400,'El inicio debe ser octubre de 2026 o un mes posterior ya iniciado.');
   if(body.verified!==true)fail(400,'Confirma el mes de inicio y la revisión de saldos.');
   const current:any=await database.prepare('SELECT * FROM billing WHERE athlete_id=?').bind(a.id).first();if(current){if(current.start_month!==start)fail(409,'La cuenta ya tiene un inicio establecido; no se modificó.');return {athleteId:a.id};}
   const stmts=[database.prepare('INSERT OR IGNORE INTO billing(athlete_id,start_month,annual_start_year,created_by,created_at) VALUES (?,?,?,?,?)').bind(a.id,start,Number(start.slice(0,4))+1,m.id,now())];
@@ -88,7 +89,7 @@ export async function financeHandle(method:string,path:string[],body:any,m:any){
   stmts.push(log(m,'billing_activated',a.id));await database.batch(stmts);await ensureMonthlyCharges();return {athleteId:a.id};
  }
  if(method==='POST'&&path[0]==='charges'&&path.length===1){
-  const a=await athlete(body.athleteId),kind=str(body.kind,'concepto',30);let period='',value=0,source='manual',notes=typeof body.notes==='string'?body.notes.trim().slice(0,1000):'';
+  const a=await athlete(body.athleteId),kind=str(body.kind,'concepto',30);await requireActiveCategory(a.category);let period='',value=0,source='manual',notes=typeof body.notes==='string'?body.notes.trim().slice(0,1000):'';
   if(a.modality==='Beca')fail(400,'Un deportista con beca no genera cobros.');
   if(kind==='legacy'){period=month(body.period);if(period>=CUTOFF)fail(400,'Los saldos anteriores deben corresponder a meses anteriores a octubre de 2026');if(body.verified!==true||!notes)fail(400,'Confirma la deuda y escribe cómo se verificó');value=amount(body.amount);source='legacy';}
   else if(kind==='mensualidad'){period=month(body.period);if(period<CUTOFF)fail(400,'Registra meses anteriores como saldo verificado');if(a.modality!=='Mensual')fail(400,'El deportista no está en modalidad mensual');value=50000;}

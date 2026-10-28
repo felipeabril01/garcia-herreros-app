@@ -89,6 +89,45 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
  if(path[0]==='inventory')return inventoryHandle(method,path.slice(1),body,m);
  if(path[0]==='expenses')return expensesHandle(method,path.slice(1),body,m);
  if(path[0]==='organization')return organizationHandle(method,path.slice(1),body,m);
+ if(method==='GET'&&path[0]==='attendance'&&path[1]==='alerts'&&path.length===2){
+  requireAdmin(m);
+  // Avisos calculados a partir de los horarios y el historial real: no se modifican fichas ni asistencias.
+  const current=new Date(),today=bogotaDate();
+  const hour=Number(new Intl.DateTimeFormat('en-GB',{timeZone:'America/Bogota',hour:'2-digit',hourCycle:'h23'}).format(current));
+  const moveDay=(d:string,delta:number)=>{const dt=new Date(d+'T12:00:00Z');dt.setUTCDate(dt.getUTCDate()+delta);return dt.toISOString().slice(0,10)};
+  const start=moveDay(today,-6),firstTracked='2026-10-28';
+  const [org,sessionsResult,auditResult,athleteResult]=await Promise.all([
+   organizationSnapshot(),
+   database.prepare('SELECT id,date,status,attendance_saved FROM sessions WHERE date>=? AND date<=?').bind(start,today).all(),
+   database.prepare("SELECT entity_id,MIN(created_at) AS first_saved FROM audit WHERE action='attendance_saved' AND created_at>=? GROUP BY entity_id").bind(start+'T00:00:00Z').all(),
+   database.prepare("SELECT category,COUNT(*) AS n FROM athletes WHERE status IN ('active','incomplete') GROUP BY category").all()
+  ]);
+  const sessions=new Map((sessionsResult.results as any[]).map(s=>[String(s.id),s]));
+  const savedAt=new Map((auditResult.results as any[]).map(s=>[String(s.entity_id),String(s.first_saved)]));
+  const athleteCounts=new Map((athleteResult.results as any[]).map(s=>[String(s.category),Number(s.n)]));
+  const coachNames=new Map(org.coaches.map((c:any)=>[String(c.id),String(c.name)]));
+  const alerts:any[]=[];
+  for(let offset=6;offset>=0;offset--){
+   const date=moveDay(today,-offset);
+   if(date<firstTracked||(date===today&&hour<21))continue;
+   const weekday=new Date(date+'T12:00:00Z').getUTCDay();
+   for(const s of org.schedule){
+    if(s.day!==weekday||!athleteCounts.get(s.category))continue;
+    const id=date+'_'+s.category,session:any=sessions.get(id);
+    if(session?.status==='cancelada')continue;
+    const first=savedAt.get(id);
+    const cutoff=new Date(date+'T21:00:00-05:00').toISOString();
+    const missed=!session?.attendance_saved;
+    const late=!!session?.attendance_saved&&!!first&&first>cutoff;
+    if(!missed&&!late)continue;
+    alerts.push({id,date,category:s.category,start:s.start,end:s.end,venue:s.venueName||s.venue||'',
+     trainers:(s.coaches||[]).map((coachId:string)=>coachNames.get(coachId)||coachId),
+     type:missed?'missing':'late',firstSavedAt:late?first:null});
+   }
+  }
+  alerts.sort((a,b)=>b.date.localeCompare(a.date)||a.category.localeCompare(b.category,'es'));
+  return {alerts,checkedAt:current.toISOString(),localDate:today,cutoff:'21:00',timeZone:'America/Bogota'};
+ }
  if(method==='GET'&&path[0]==='bootstrap'){
   await ensureReviewedAthleteImport();
   await ensureReviewedAthleteImport20261009();

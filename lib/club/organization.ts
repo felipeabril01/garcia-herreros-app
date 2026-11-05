@@ -102,7 +102,7 @@ export async function organizationHandle(method:string,path:string[],body:any,m:
 
  if(path[0]==='days-off'&&path.length===1&&method==='POST'){
   const date=clean(body?.date,'fecha sin entrenamiento',10);
-  if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)||Number.isNaN(Date.parse(date+'T12:00:00Z'))||new Date(date+'T12:00:00Z').toISOString().slice(0,10)!==date)fail(400,'Fecha inválida.');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(Date.parse(date+'T12:00:00Z'))||new Date(date+'T12:00:00Z').toISOString().slice(0,10)!==date)fail(400,'Fecha inválida.');
   if(date<'2026-01-01'||date>'2100-12-31')fail(400,'Fecha fuera del periodo permitido.');
   const reason=clean(body?.reason,'motivo',120),t=now();
   const previous:any=await database.prepare('SELECT date,reason FROM club_days_off WHERE date=?').bind(date).first();
@@ -115,7 +115,7 @@ export async function organizationHandle(method:string,path:string[],body:any,m:
  }
  if(path[0]==='days-off'&&path.length===2&&method==='DELETE'){
   const date=path[1];
-  if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date))fail(400,'Fecha inválida.');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date))fail(400,'Fecha inválida.');
   const previous:any=await database.prepare('SELECT date FROM club_days_off WHERE date=?').bind(date).first();
   if(!previous)fail(404,'Ese día no está marcado como sin entrenamiento.');
   const t=now();

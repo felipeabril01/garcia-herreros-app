@@ -29,6 +29,24 @@ export async function ensureOrganizationTables(){
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
  )`).run();
+ await database.prepare(`CREATE TABLE IF NOT EXISTS club_days_off (
+  date TEXT PRIMARY KEY,
+  reason TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL
+ )`).run();
+ await database.prepare(`CREATE TABLE IF NOT EXISTS club_config_seeds (
+  name TEXT PRIMARY KEY
+ )`).run();
+ // Excepción inicial expresamente reportada: lunes 2 de noviembre de 2026 sin entrenamiento.
+ // La marca de migración permite quitar esta fecha después sin que vuelva a aparecer.
+ const seeded:any=await database.prepare("SELECT name FROM club_config_seeds WHERE name='closed-20261102-v1'").first();
+ if(!seeded){
+  await database.batch([
+   database.prepare("INSERT OR IGNORE INTO club_days_off(date,reason,created_by,created_at) VALUES ('2026-11-02','Festivo, sin entrenamiento','system',?)").bind(now()),
+   database.prepare("INSERT OR IGNORE INTO club_config_seeds(name) VALUES ('closed-20261102-v1')")
+  ]);
+ }
  const count:any=await database.prepare('SELECT COUNT(*) AS n FROM club_categories').first();
  if(!Number(count?.n||0)){
   const t=now();
@@ -48,9 +66,11 @@ export async function organizationSnapshot(){
  const activeCategoryNames=new Set(categories.filter(c=>Number(c.active)===1).map(c=>String(c.name)));
  const schedule=(await database.prepare('SELECT * FROM club_schedule WHERE active=1 ORDER BY day,start_time,category').all()).results as any[];
  const coaches=(await database.prepare("SELECT id,name,title,role,coach_id,active FROM staff WHERE coach_id IS NOT NULL ORDER BY name").all()).results as any[];
+ const daysOff=(await database.prepare('SELECT date,reason,created_at FROM club_days_off ORDER BY date DESC').all()).results as any[];
  return {
   categories:categories.filter(c=>Number(c.active)===1).map(c=>c.name),
   categoryRecords:categories,
+  daysOff,
   coaches:coaches.map(c=>({id:c.coach_id||c.id,staffId:c.id,name:c.name,title:c.title,active:!!c.active})),
   schedule:schedule.filter(s=>activeCategoryNames.has(String(s.category))).map(s=>({id:s.id,category:s.category,day:Number(s.day),venue:s.venue_key,venueName:s.venue_name,start:s.start_time,end:s.end_time,coaches:JSON.parse(s.coaches_json||'[]')}))
  };
@@ -80,6 +100,31 @@ export async function organizationHandle(method:string,path:string[],body:any,m:
  const database=db();
  if(method==='GET'&&path.length===0)return organizationSnapshot();
 
+ if(path[0]==='days-off'&&path.length===1&&method==='POST'){
+  const date=clean(body?.date,'fecha sin entrenamiento',10);
+  if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)||Number.isNaN(Date.parse(date+'T12:00:00Z'))||new Date(date+'T12:00:00Z').toISOString().slice(0,10)!==date)fail(400,'Fecha inválida.');
+  if(date<'2026-01-01'||date>'2100-12-31')fail(400,'Fecha fuera del periodo permitido.');
+  const reason=clean(body?.reason,'motivo',120),t=now();
+  const previous:any=await database.prepare('SELECT date,reason FROM club_days_off WHERE date=?').bind(date).first();
+  if(previous)return {date,reason:previous.reason,alreadyExists:true};
+  await database.batch([
+   database.prepare('INSERT OR IGNORE INTO club_days_off(date,reason,created_by,created_at) VALUES (?,?,?,?)').bind(date,reason,m.id,t),
+   database.prepare('INSERT INTO audit(id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)').bind(crypto.randomUUID(),m.id,'training_day_closed',date,t)
+  ]);
+  return {date,reason};
+ }
+ if(path[0]==='days-off'&&path.length===2&&method==='DELETE'){
+  const date=path[1];
+  if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date))fail(400,'Fecha inválida.');
+  const previous:any=await database.prepare('SELECT date FROM club_days_off WHERE date=?').bind(date).first();
+  if(!previous)fail(404,'Ese día no está marcado como sin entrenamiento.');
+  const t=now();
+  await database.batch([
+   database.prepare('DELETE FROM club_days_off WHERE date=?').bind(date),
+   database.prepare('INSERT INTO audit(id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)').bind(crypto.randomUUID(),m.id,'training_day_reopened',date,t)
+  ]);
+  return {date,removed:true};
+ }
  if(path[0]==='categories'&&method==='POST'){
   const name=clean(body.name,'nombre de categoría',60);
   const exists:any=await database.prepare('SELECT id FROM club_categories WHERE lower(name)=lower(?)').bind(name).first();

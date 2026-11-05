@@ -104,10 +104,12 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   const sessions=new Map((sessionsResult.results as any[]).map(s=>[String(s.id),s]));
   const athleteCounts=new Map((athleteResult.results as any[]).map(s=>[String(s.category),Number(s.n)]));
   const coachNames=new Map(org.coaches.map((c:any)=>[String(c.id),String(c.name)]));
+  const daysOff=new Set((org.daysOff||[]).map((x:any)=>String(x.date)));
   const alerts:any[]=[];
   for(let offset=6;offset>=0;offset--){
    const date=moveDay(today,-offset);
    if(date===today&&hour<21)continue;
+   if(daysOff.has(date))continue;
    const weekday=new Date(date+'T12:00:00Z').getUTCDay();
    for(const s of org.schedule){
     if(s.day!==weekday||!athleteCounts.get(s.category))continue;
@@ -135,7 +137,7 @@ export async function handle(method:string,path:string[],body:any,m:any){const d
   await ensureMonthlyCharges();
   const org=await organizationSnapshot();const result=await database.prepare('SELECT * FROM athletes ORDER BY name').all();const categories=m.role===ADMIN?org.categories:await coachCategoriesDynamic(m.coach_id||'');const staff=m.role===ADMIN?(await database.prepare('SELECT id,name,title,role,coach_id,email,username,active,owner,(password_hash IS NOT NULL) AS has_password FROM staff ORDER BY owner DESC,role,name').all()).results:[];
   const permitted=(m.role===ADMIN?result.results:result.results.filter((a:any)=>categories.includes(a.category))).map(a=>publicAthlete(a,m));
-  return {member:{id:m.id,name:m.name,title:m.title,role:m.role,coachId:m.coach_id,owner:!!m.owner},clubEmail:CLUB_EMAIL,categories,athletes:await enrichEligibility(permitted),staff,coaches:org.coaches,schedule:org.schedule.filter((s:any)=>m.role===ADMIN||s.coaches.includes(m.coach_id)),categoryRecords:org.categoryRecords};
+  return {member:{id:m.id,name:m.name,title:m.title,role:m.role,coachId:m.coach_id,owner:!!m.owner},clubEmail:CLUB_EMAIL,categories,athletes:await enrichEligibility(permitted),staff,coaches:org.coaches,schedule:org.schedule.filter((s:any)=>m.role===ADMIN||s.coaches.includes(m.coach_id)),daysOff:org.daysOff,categoryRecords:org.categoryRecords};
  }
  if(path[0]==='account'&&path[1]==='password'&&method==='PUT'){
   const current=str(body.currentPassword,'contraseña actual',128);

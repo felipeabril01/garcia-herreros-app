@@ -1,5 +1,6 @@
 import {db} from './db';
 import {HttpError} from './errors';
+import {ensureHistoricalTables,historicalImportCount,migrateReviewed2020} from './migration-cartera-2020';
 import {buildReceiptModel,receiptHtml} from './receipt-document';
 export const CUTOFF='2026-10';
 const now=()=>new Date().toISOString();
@@ -13,7 +14,7 @@ function amount(v:any){if(!Number.isSafeInteger(v)||v<=0||v>100000000)fail(400,'
 function log(m:any,action:string,id:string){return db().prepare('INSERT INTO audit(id,actor,action,entity_id,created_at) VALUES (?,?,?,?,?)').bind(crypto.randomUUID(),m.id,action,id,now())}
 async function athlete(id:any){const a:any=await db().prepare('SELECT * FROM athletes WHERE id=?').bind(str(id,'deportista',100)).first();if(!a)fail(404,'Deportista no encontrado');return a}
 async function requireActiveCategory(category:string){const c:any=await db().prepare('SELECT active FROM club_categories WHERE name=?').bind(category).first();if(!c||Number(c.active)!==1)fail(409,'La categoría está archivada. No se pueden generar nuevos cobros ni activar cartera.');}
-export const balancesSQL=`SELECT c.*,c.amount-COALESCE((SELECT SUM(al.amount) FROM allocations al JOIN payments p ON p.id=al.payment_id WHERE al.charge_id=c.id AND p.status='confirmed'),0) AS balance FROM charges c`;
+export const balancesSQL=`SELECT c.*,c.amount-COALESCE((SELECT SUM(al.amount) FROM allocations al JOIN payments p ON p.id=al.payment_id WHERE al.charge_id=c.id AND p.status='confirmed'),0)-COALESCE((SELECT SUM(h.amount) FROM historical_credits h WHERE h.charge_id=c.id),0) AS balance,COALESCE((SELECT SUM(h.amount) FROM historical_credits h WHERE h.charge_id=c.id),0) AS historical_credit FROM charges c`;
 const chargeStmt=(a:string,kind:string,period:string,value:number,source:string,actor:string,notes='')=>db().prepare("INSERT OR IGNORE INTO charges(id,athlete_id,kind,period,amount,source,notes,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,'active',?,?)").bind(kind+':'+a+':'+period,a,kind,period,value,source,notes,actor,now());
 export async function ensureMonthlyCharges(asOf=financeDate()){
  const profiles:any[]=(await db().prepare('SELECT * FROM billing').all()).results;if(!profiles.length)return;
@@ -36,20 +37,26 @@ export function eligibility(a:any,charges:any[],exceptions:any[],profile:any,asO
  const pending=charges.some(c=>c.athlete_id===a.id&&c.kind==='mensualidad'&&c.status==='active'&&c.balance>0&&c.period<=asOf.slice(0,7));
  return {status:pending?'notice':'eligible',label:pending?'Habilitado · pago pendiente':'Habilitado',evaluatedAt:asOf};
 }
-export async function enrichEligibility(athletes:any[]){const cs=(await db().prepare(balancesSQL).all()).results,es=(await db().prepare('SELECT * FROM exceptions WHERE revoked_at IS NULL').all()).results,bs=(await db().prepare('SELECT * FROM billing').all()).results;return athletes.map(a=>({...a,eligibility:eligibility(a,cs,es,bs.find((b:any)=>b.athlete_id===a.id),financeDate())}));}
+export async function enrichEligibility(athletes:any[]){await ensureHistoricalTables();const cs=(await db().prepare(balancesSQL).all()).results,es=(await db().prepare('SELECT * FROM exceptions WHERE revoked_at IS NULL').all()).results,bs=(await db().prepare('SELECT * FROM billing').all()).results;return athletes.map(a=>({...a,eligibility:eligibility(a,cs,es,bs.find((b:any)=>b.athlete_id===a.id),financeDate())}));}
 export async function financeHandle(method:string,path:string[],body:any,m:any){
  if(m.role!=='admin')fail(403,'Solo los administrativos pueden consultar y registrar movimientos económicos.');
  const database=db();
+ await ensureHistoricalTables();
+ if(method==='POST'&&path[0]==='migration'&&path[1]==='2020-2021'&&path.length===2)return migrateReviewed2020(m,ensureMonthlyCharges);
  if(method==='GET'&&path[0]==='export'&&path.length===1){
   // Read-only reconciliation export. Keep voided payments visible for auditing.
   const rows=(await database.prepare(`SELECT a.id AS athlete_id,a.name AS athlete_name,a.category,a.modality,a.status AS athlete_status,
     b.start_month,c.id AS charge_id,c.kind,c.period,c.amount AS charge_amount,c.source,c.status AS charge_status,
     c.notes AS charge_notes,
     c.amount-COALESCE((SELECT SUM(x.amount) FROM allocations x JOIN payments cp ON cp.id=x.payment_id
-      WHERE x.charge_id=c.id AND cp.status='confirmed'),0) AS balance,
+      WHERE x.charge_id=c.id AND cp.status='confirmed'),0)
+      -COALESCE((SELECT SUM(h.amount) FROM historical_credits h WHERE h.charge_id=c.id),0) AS balance,
+    COALESCE((SELECT SUM(h.amount) FROM historical_credits h WHERE h.charge_id=c.id),0) AS historical_credit,
+    legacy.original_start_month,legacy.last_paid_month,
     al.amount AS applied_amount,p.id AS payment_id,p.paid_date,p.status AS payment_status,
     p.amount AS payment_total,p.method,p.payer,p.reference,p.created_at AS payment_created_at
     FROM athletes a LEFT JOIN billing b ON b.athlete_id=a.id
+    LEFT JOIN legacy_billing_imports legacy ON legacy.athlete_id=a.id
     LEFT JOIN charges c ON c.athlete_id=a.id
     LEFT JOIN allocations al ON al.charge_id=c.id
     LEFT JOIN payments p ON p.id=al.payment_id
@@ -59,7 +66,7 @@ export async function financeHandle(method:string,path:string[],body:any,m:any){
  if(method==='GET'&&path[0]==='overview'){
   await ensureMonthlyCharges();const cs=(await database.prepare(balancesSQL+' ORDER BY c.period,c.created_at').all()).results;
   const ps=(await database.prepare('SELECT payments.*,staff.name AS recorder FROM payments LEFT JOIN staff ON staff.id=payments.created_by ORDER BY payments.id DESC LIMIT 300').all()).results;
-  return {cutoff:CUTOFF,today:financeDate(),charges:cs,payments:ps,billing:(await database.prepare('SELECT * FROM billing').all()).results,exceptions:(await database.prepare('SELECT exceptions.*,staff.name AS author FROM exceptions LEFT JOIN staff ON staff.id=exceptions.created_by ORDER BY exceptions.created_at DESC').all()).results};
+  return {cutoff:CUTOFF,today:financeDate(),charges:cs,payments:ps,billing:(await database.prepare('SELECT * FROM billing').all()).results,exceptions:(await database.prepare('SELECT exceptions.*,staff.name AS author FROM exceptions LEFT JOIN staff ON staff.id=exceptions.created_by ORDER BY exceptions.created_at DESC').all()).results,migration2020:await historicalImportCount()};
  }
  if(method==='POST'&&path[0]==='reports'&&path[1]==='income'){
   const start=date(body.startDate),end=date(body.endDate);if(end<start)fail(400,'La fecha final debe ser igual o posterior a la inicial.');
@@ -124,8 +131,9 @@ export async function financeHandle(method:string,path:string[],body:any,m:any){
   const lines=body.allocations.map((l:any)=>({id:str(l.chargeId,'cobro',160),amount:amount(l.amount)}));if(new Set(lines.map((l:any)=>l.id)).size!==lines.length)fail(400,'Un cobro está repetido');const total=lines.reduce((s:number,l:any)=>s+l.amount,0);amount(total);
   const payload=JSON.stringify({athleteId:a.id,actor:m.id,payer,method:methodValue,paidDate,reference,lines:[...lines].sort((a:any,b:any)=>a.id.localeCompare(b.id))});
   const prior:any=await database.prepare('SELECT * FROM payments WHERE request_id=?').bind(key).first();if(prior){if(prior.created_by!==m.id||prior.athlete_id!==a.id||prior.amount!==total||prior.payload!==payload)fail(409,'El identificador ya fue usado');return {id:prior.id};}
-  const outstanding=`SELECT SUM(al.amount) FROM allocations al JOIN payments p ON p.id=al.payment_id WHERE al.charge_id=c.id AND p.status='confirmed'`;
-  const stmts=[database.prepare(`INSERT OR IGNORE INTO payments(request_id,payload,athlete_id,athlete_name,amount,method,payer,reference,paid_date,status,created_by,created_at) SELECT ?,?,?,?,?,?,?,?,?,'confirmed',?,? WHERE NOT EXISTS (SELECT 1 FROM json_each(?) j LEFT JOIN charges c ON c.id=json_extract(j.value,'$.id') WHERE c.id IS NULL OR c.athlete_id<>? OR c.status<>'active' OR json_extract(j.value,'$.amount')>c.amount-COALESCE((${outstanding}),0))`).bind(key,payload,a.id,a.name,total,methodValue,payer,reference,paidDate,m.id,now(),JSON.stringify(lines),a.id)];
+  const outstanding=`SELECT COALESCE(SUM(al.amount),0) FROM allocations al JOIN payments p ON p.id=al.payment_id WHERE al.charge_id=c.id AND p.status='confirmed'`;
+  const covered=`COALESCE((SELECT SUM(h.amount) FROM historical_credits h WHERE h.charge_id=c.id),0)`;
+  const stmts=[database.prepare(`INSERT OR IGNORE INTO payments(request_id,payload,athlete_id,athlete_name,amount,method,payer,reference,paid_date,status,created_by,created_at) SELECT ?,?,?,?,?,?,?,?,?,'confirmed',?,? WHERE NOT EXISTS (SELECT 1 FROM json_each(?) j LEFT JOIN charges c ON c.id=json_extract(j.value,'$.id') WHERE c.id IS NULL OR c.athlete_id<>? OR c.status<>'active' OR json_extract(j.value,'$.amount')>c.amount-COALESCE((${outstanding}),0)-${covered})`).bind(key,payload,a.id,a.name,total,methodValue,payer,reference,paidDate,m.id,now(),JSON.stringify(lines),a.id)];
   for(const l of lines)stmts.push(database.prepare('INSERT OR IGNORE INTO allocations(payment_id,charge_id,amount) SELECT id,?,? FROM payments WHERE request_id=? AND payload=?').bind(l.id,l.amount,key,payload));
   stmts.push(database.prepare("INSERT OR IGNORE INTO audit(id,actor,action,entity_id,created_at) SELECT ?,?,'payment_confirmed',CAST(id AS TEXT),? FROM payments WHERE request_id=?").bind('payment:'+key,m.id,now(),key));
   await database.batch(stmts);const saved:any=await database.prepare('SELECT id FROM payments WHERE request_id=? AND payload=?').bind(key,payload).first();if(!saved)fail(409,'El saldo cambió o uno de los valores supera el pendiente. Actualiza los cobros antes de registrar el pago.');return {id:saved.id};
@@ -141,7 +149,7 @@ export async function financeHandle(method:string,path:string[],body:any,m:any){
  }
  if(method==='POST'&&path[0]==='charges'&&path[1]&&path[2]==='void'){
   const reason=str(body.reason,'motivo de anulación',500),c:any=await database.prepare(balancesSQL+' WHERE c.id=?').bind(path[1]).first();if(!c)fail(404,'Cobro no encontrado');if(c.status==='void')return {id:c.id};
-  const result=await database.batch([database.prepare("UPDATE charges SET status='void',void_reason=?,void_by=?,void_at=? WHERE id=? AND NOT EXISTS (SELECT 1 FROM allocations al JOIN payments p ON p.id=al.payment_id WHERE al.charge_id=charges.id AND p.status='confirmed')").bind(reason,m.id,now(),c.id),database.prepare("INSERT INTO audit(id,actor,action,entity_id,created_at) SELECT ?,?,'charge_voided',?,? WHERE changes()=1").bind(crypto.randomUUID(),m.id,c.id,now())]);if(!result[0].meta.changes)fail(409,'Primero anula los pagos aplicados al cobro.');return {id:c.id};
+  const result=await database.batch([database.prepare("UPDATE charges SET status='void',void_reason=?,void_by=?,void_at=? WHERE id=? AND NOT EXISTS (SELECT 1 FROM allocations al JOIN payments p ON p.id=al.payment_id WHERE al.charge_id=charges.id AND p.status='confirmed') AND NOT EXISTS (SELECT 1 FROM historical_credits h WHERE h.charge_id=charges.id)").bind(reason,m.id,now(),c.id),database.prepare("INSERT INTO audit(id,actor,action,entity_id,created_at) SELECT ?,?,'charge_voided',?,? WHERE changes()=1").bind(crypto.randomUUID(),m.id,c.id,now())]);if(!result[0].meta.changes)fail(409,'Primero anula los pagos aplicados al cobro.');return {id:c.id};
  }
  if(method==='POST'&&path[0]==='exceptions'&&path.length===1){
   const a=await athlete(body.athleteId),start=date(body.startDate),end=date(body.endDate),reason=str(body.reason,'motivo',500),id=requestId(body.requestId);if(end<start)fail(400,'El vencimiento debe ser igual o posterior al inicio');

@@ -28,10 +28,8 @@ export async function validateReviewed2020():Promise<string[]>{
  for(const [id,start,last] of ROWS){
   const a:any=lookup.get(id);
   if(!a){problems.push('Falta el identificador '+id);continue;}
-  if(id===juan){
-   if(!['2008–2011',targetCategory].includes(a.category))problems.push(a.name+': categoría '+a.category);
-  }else if(a.category!==targetCategory)problems.push(a.name+': categoría '+a.category);
-  if(a.status!=='active'&&a.status!=='incomplete'&&!(id===juan&&a.status==='inactive'))problems.push(a.name+': estado '+a.status);
+  if(a.category!==targetCategory)problems.push(a.name+': categoría '+a.category+' (debe ser '+targetCategory+')');
+  if(a.status!=='active'&&a.status!=='incomplete')problems.push(a.name+': estado '+a.status+' (debe estar activo)');
   if(start==='00'){
    if(a.modality!=='Beca')problems.push(a.name+': modalidad '+a.modality+' (se esperaba beca)');
   }else if(a.modality!=='Mensual'||!['09','10','11'].includes(last)){
@@ -51,9 +49,7 @@ export async function migrateReviewed2020(m:any,ensureMonthlyCharges:()=>Promise
  // All data is prepared before any monetary mutations. Re-running is safe.
  const t=new Date().toISOString();
  const statements:any[]=[];
- // Juan David remains inactive. His category will be reviewed separately before billing.
  for(const [id,start,last] of ROWS){
-  if(id===juan)continue; // Excluded while inactive, without changing athlete or billing.
   const scholarship=start==='00';
   statements.push(database.prepare('INSERT OR IGNORE INTO legacy_billing_imports(athlete_id,original_start_month,last_paid_month,source,created_at) VALUES (?,?,?,?,?)').bind(id,scholarship?null:'2026-'+start,scholarship?null:'2026-'+last,'confirmed-excel-20261116-2020',t));
   if(scholarship)continue;
@@ -70,7 +66,7 @@ export async function migrateReviewed2020(m:any,ensureMonthlyCharges:()=>Promise
  // Match payments already recorded, so historical confirmation only settles the unpaid difference.
  const credits:any[]=[];
  for(const [id,start,last] of ROWS){
-  if(id===juan||start==='00')continue;
+  if(start==='00')continue;
   for(const period of ['2026-10','2026-11']){
    if(period<'2026-'+start||period>'2026-'+last)continue;
    const chargeId='mensualidad:'+id+':'+period;
@@ -86,5 +82,5 @@ export async function migrateReviewed2020(m:any,ensureMonthlyCharges:()=>Promise
  }
  for(let i=0;i<credits.length;i+=60)await database.batch(credits.slice(i,i+60));
  await ensureMonthlyCharges();
- return {imported:await historicalImportCount(),excludedInactive:1,historicalCredits:credits.length,already:false};
+ return {imported:await historicalImportCount(),historicalCredits:credits.length,already:false};
 }

@@ -1,6 +1,6 @@
 import {db} from './db';
 import {HttpError} from './errors';
-import {ensureHistoricalTables,historicalImportCount,migrateReviewed2020} from './migration-cartera-2020';
+import {ensureHistoricalTables,historicalImportCount,validateReviewed2020,migrateReviewed2020} from './migration-cartera-2020';
 import {buildReceiptModel,receiptHtml} from './receipt-document';
 export const CUTOFF='2026-10';
 const now=()=>new Date().toISOString();
@@ -42,6 +42,7 @@ export async function financeHandle(method:string,path:string[],body:any,m:any){
  if(m.role!=='admin')fail(403,'Solo los administrativos pueden consultar y registrar movimientos económicos.');
  const database=db();
  await ensureHistoricalTables();
+ if(method==='GET'&&path[0]==='migration'&&path[1]==='2020-2021'&&path[2]==='check')return {issues:await validateReviewed2020(),alreadyImported:await historicalImportCount()};
  if(method==='POST'&&path[0]==='migration'&&path[1]==='2020-2021'&&path.length===2)return migrateReviewed2020(m,ensureMonthlyCharges);
  if(method==='GET'&&path[0]==='export'&&path.length===1){
   // Read-only reconciliation export. Keep voided payments visible for auditing.

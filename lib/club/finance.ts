@@ -40,6 +40,22 @@ export async function enrichEligibility(athletes:any[]){const cs=(await db().pre
 export async function financeHandle(method:string,path:string[],body:any,m:any){
  if(m.role!=='admin')fail(403,'Solo los administrativos pueden consultar y registrar movimientos económicos.');
  const database=db();
+ if(method==='GET'&&path[0]==='export'&&path.length===1){
+  // Read-only reconciliation export. Keep voided payments visible for auditing.
+  const rows=(await database.prepare(`SELECT a.id AS athlete_id,a.name AS athlete_name,a.category,a.modality,a.status AS athlete_status,
+    b.start_month,c.id AS charge_id,c.kind,c.period,c.amount AS charge_amount,c.source,c.status AS charge_status,
+    c.notes AS charge_notes,
+    c.amount-COALESCE((SELECT SUM(x.amount) FROM allocations x JOIN payments cp ON cp.id=x.payment_id
+      WHERE x.charge_id=c.id AND cp.status='confirmed'),0) AS balance,
+    al.amount AS applied_amount,p.id AS payment_id,p.paid_date,p.status AS payment_status,
+    p.amount AS payment_total,p.method,p.payer,p.reference,p.created_at AS payment_created_at
+    FROM athletes a LEFT JOIN billing b ON b.athlete_id=a.id
+    LEFT JOIN charges c ON c.athlete_id=a.id
+    LEFT JOIN allocations al ON al.charge_id=c.id
+    LEFT JOIN payments p ON p.id=al.payment_id
+    ORDER BY a.category,a.name,c.period,c.kind,p.paid_date,p.id`).all()).results;
+  return {rows,exportedAt:now()};
+ }
  if(method==='GET'&&path[0]==='overview'){
   await ensureMonthlyCharges();const cs=(await database.prepare(balancesSQL+' ORDER BY c.period,c.created_at').all()).results;
   const ps=(await database.prepare('SELECT payments.*,staff.name AS recorder FROM payments LEFT JOIN staff ON staff.id=payments.created_by ORDER BY payments.id DESC LIMIT 300').all()).results;

@@ -35,7 +35,7 @@ export async function migrateReviewed2020(m:any,ensureMonthlyCharges:()=>Promise
   else if(a.modality!=='Mensual'||!['09','10','11'].includes(last))throw new Error('Modalidad o mes incompatible: '+a.name);
  }
  const already=await historicalImportCount();
- if(already===38)return {imported:38,already:true};
+ // Reconciliation is idempotent, including recovery after an interrupted batch.
  // All data is prepared before any monetary mutations. Re-running is safe.
  const t=new Date().toISOString();
  const statements:any[]=[];
